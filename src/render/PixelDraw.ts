@@ -1,0 +1,75 @@
+/**
+ * Small helpers for drawing chunky, readable pixel-art into an atlas cell.
+ * Every sprite is authored as a low-res grid (typically 16x16) then scaled
+ * up to the cell's full pixel size with imageSmoothingEnabled=false already
+ * set by SpriteAtlas, so edges stay crisp.
+ */
+
+/** grid rows top-to-bottom, each a string where each char maps to a palette color; '.' = transparent. */
+export function drawPixelGrid(
+  ctx: CanvasRenderingContext2D,
+  cellSize: number,
+  grid: string[],
+  palette: Record<string, string>,
+): void {
+  const rows = grid.length;
+  const cols = Math.max(...grid.map((r) => r.length));
+  const px = cellSize / Math.max(rows, cols);
+  const offsetX = (cellSize - cols * px) / 2;
+  const offsetY = (cellSize - rows * px) / 2;
+  for (let y = 0; y < rows; y++) {
+    const row = grid[y];
+    for (let x = 0; x < row.length; x++) {
+      const ch = row[x];
+      if (ch === '.' || ch === ' ') continue;
+      const color = palette[ch];
+      if (!color) continue;
+      ctx.fillStyle = color;
+      ctx.fillRect(Math.round(offsetX + x * px), Math.round(offsetY + y * px), Math.ceil(px), Math.ceil(px));
+    }
+  }
+}
+
+export function drawSoftCircle(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, color: string, alpha = 1): void {
+  const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+  grad.addColorStop(0, color);
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+}
+
+export function drawOutlinedCircle(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, fill: string, outline: string, lineWidth = 2): void {
+  ctx.fillStyle = fill;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.lineWidth = lineWidth;
+  ctx.strokeStyle = outline;
+  ctx.stroke();
+}
+
+// --- coordinate-based grid authoring helpers, shared by every sprite module
+// so pixel art is built as safe fillRect() coordinates instead of hand-
+// aligned multiline strings. ---
+
+export function makeGrid(w: number, h: number): string[][] {
+  return Array.from({ length: h }, () => Array.from({ length: w }, () => '.'));
+}
+
+export function fillRect(g: string[][], x0: number, y0: number, x1: number, y1: number, ch: string): void {
+  for (let y = y0; y <= y1; y++) {
+    if (!g[y]) continue;
+    for (let x = x0; x <= x1; x++) {
+      if (g[y][x] === undefined) continue;
+      g[y][x] = ch;
+    }
+  }
+}
+
+export function toRows(g: string[][]): string[] {
+  return g.map((row) => row.join(''));
+}

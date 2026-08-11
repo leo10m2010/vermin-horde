@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0c0f0a" />
+    <link rel="icon" href="data:," />
+    <title>Vermin Horde</title>
+  </head>
+  <body>
+    <main id="app">
+      <canvas id="game-canvas" aria-label="Playable game canvas"></canvas>
+
+      <section id="hud" aria-live="polite">
+        <div id="hud-top-left">
+          <div id="level-badge">Lv <span id="hud-level">1</span></div>
+          <div id="xp-bar"><div id="xp-bar-fill"></div></div>
+        </div>
+        <div id="hud-top-right">
+          <div id="hud-timer">00:00</div>
+          <div id="hud-kills"><span id="hud-kill-count">0</span> muertes</div>
+        </div>
+        <div id="hud-bottom-left">
+          <div id="health-bar"><div id="health-bar-fill"></div><span id="health-text">100/100</span></div>
+        </div>
+        <div id="boss-banner" hidden></div>
+      </section>
+
+      <div id="ui-root"></div>
+
+      <div id="touch-controls" aria-hidden="true">
+        <div id="touch-stick">
+          <div id="touch-knob"></div>
+        </div>
+      </div>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

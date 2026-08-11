@@ -1,0 +1,72 @@
+import type { Weapon, WeaponContext } from './WeaponBase';
+import { findNearestEnemies, VisualCache } from './WeaponBase';
+
+const RANGE = 12;
+const BASE_COOLDOWN = 0.55;
+const BASE_DAMAGE = 7;
+const BASE_SPEED = 11;
+
+/** Starting weapon: auto-targets the nearest enemy(ies) in range and fires straight bolts. */
+export class MagicWandWeapon implements Weapon {
+  readonly id = 'magic_wand';
+  readonly name = 'Magic Wand';
+  level = 1;
+  readonly maxLevel = 8;
+  evolved = false;
+  /** Evolves into a rapid-cast form once the player also holds Quick Hands (cooldown passive). */
+  readonly evolutionRequiresPassive = 'passive_cooldown';
+
+  private readonly visualId: number;
+  private cooldown = 0;
+  private readonly targetBuffer: number[] = [];
+
+  constructor(visuals: VisualCache, private readonly weaponNumericId: number) {
+    this.visualId = visuals.get('bolt_basic', 0.55, [1, 1, 1], true);
+  }
+
+  private projectileCount(): number {
+    const base = 1 + Math.floor((this.level - 1) / 3);
+    return this.evolved ? base + 2 : base;
+  }
+
+  private pierce(): number {
+    const base = Math.floor((this.level - 1) / 4);
+    return this.evolved ? base + 2 : base;
+  }
+
+  update(ctx: WeaponContext): void {
+    this.cooldown -= ctx.dt;
+    if (this.cooldown > 0) return;
+
+    const count = this.projectileCount();
+    const found = findNearestEnemies(ctx, ctx.playerX, ctx.playerZ, RANGE, count, this.targetBuffer);
+    if (found === 0) return;
+
+    this.cooldown = Math.max(0.18, BASE_COOLDOWN - 0.03 * (this.level - 1)) * ctx.stats.cooldownMultiplier;
+    const damage = (BASE_DAMAGE + 1.4 * (this.level - 1)) * (this.evolved ? 1.3 : 1) * ctx.stats.damageMultiplier;
+    const speed = BASE_SPEED * ctx.stats.projectileSpeedMultiplier;
+    const pierce = this.pierce();
+
+    for (let i = 0; i < found; i++) {
+      const target = this.targetBuffer[i];
+      const dx = ctx.enemies.posX[target] - ctx.playerX;
+      const dz = ctx.enemies.posZ[target] - ctx.playerZ;
+      const dist = Math.sqrt(dx * dx + dz * dz) || 1;
+      ctx.projectiles.spawn(this.visualId, ctx.playerX, ctx.playerZ, (dx / dist) * speed, (dz / dist) * speed, {
+        damage,
+        radius: 0.4,
+        pierce,
+        life: 2.2,
+        weaponId: this.weaponNumericId,
+      });
+    }
+  }
+
+  levelUp(): void {
+    this.level = Math.min(this.maxLevel, this.level + 1);
+  }
+
+  evolve(): void {
+    this.evolved = true;
+  }
+}

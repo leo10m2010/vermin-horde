@@ -1,0 +1,64 @@
+/// <reference types="vite/client" />
+
+interface ThreeGameDiagnostics {
+  frame: number;
+  fps: number;
+  elapsed: number;
+  phase: string;
+  level: number;
+  kills: number;
+  eliteKills: number;
+  bossKills: number;
+  health: number;
+  maxHealth: number;
+  gold: number;
+  player: {
+    position: { x: number; y: number; z: number };
+    speed: number;
+  };
+  enemyCount: number;
+  projectileCount: number;
+  gemCount: number;
+  particleCount: number;
+  renderer: {
+    calls: number;
+    triangles: number;
+    geometries: number;
+    textures: number;
+  };
+  canvas: {
+    clientWidth: number;
+    clientHeight: number;
+    width: number;
+    height: number;
+    dpr: number;
+  };
+}
+
+interface ThreeGameTestHooks {
+  /** Re-seed the game RNG; all gameplay randomness must flow through it. */
+  seed(value: number): void;
+  /** Jump to a named state: 'active-play' | 'paused' | 'levelup' | 'gameover' | 'victory'. */
+  setState(name: string): void;
+  /** Freeze the simulation while continuing to render the current frame. */
+  setPausedForScreenshot(paused: boolean): void;
+  /** Freeze ambient/idle animation time so screenshots are stable. */
+  setReducedMotion(enabled: boolean): void;
+  /** Hide debug UI before capturing. */
+  hideDebugUi(hidden: boolean): void;
+  /** QA/perf helper: force-spawn N enemies around the player (stress testing). */
+  spawnEnemies(count: number): void;
+  /** QA helper: remove every active enemy. */
+  clearEnemies(): void;
+  /** QA helper: grant enough XP to trigger N level-ups immediately. */
+  grantLevels(count: number): void;
+  /** QA helper: toggle invulnerability so bot playtests can survive long stress runs. */
+  setGodMode(enabled: boolean): void;
+  /** QA helper: force-spawn the next scheduled boss immediately. */
+  forceBoss(): void;
+}
+
+interface Window {
+  __THREE_GAME_DIAGNOSTICS__?: ThreeGameDiagnostics;
+  __THREE_GAME_TEST_HOOKS__?: ThreeGameTestHooks;
+}
