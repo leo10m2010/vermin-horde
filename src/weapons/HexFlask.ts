@@ -13,8 +13,10 @@ const BASE_TICK_DAMAGE = 5;
 const ZONE_COLOR = '#a6ff8c';
 const ZONE_OPACITY = 0.5;
 const EVOLVED_SATELLITE_OFFSET_FACTOR = 0.9; // evolved-only: distance (relative to zone radius) of the second zone from the primary landing point
+const LOB_ARC_HEIGHT = 1.1; // world units of peak visual rise during the flight - collisions/landing stay flat on X/Z
 
 interface FlightState {
+  spawnAt: number;
   arriveAt: number;
   landX: number;
   landZ: number;
@@ -93,7 +95,7 @@ export class HexFlaskWeapon implements Weapon {
       weaponId: this.weaponNumericId,
     });
     if (index === -1) return;
-    this.flights.set(index, { arriveAt: ctx.elapsed + TRAVEL_TIME, landX, landZ });
+    this.flights.set(index, { spawnAt: ctx.elapsed, arriveAt: ctx.elapsed + TRAVEL_TIME, landX, landZ });
   }
 
   private stepFlights(ctx: WeaponContext): void {
@@ -102,7 +104,12 @@ export class HexFlaskWeapon implements Weapon {
         this.flights.delete(index);
         continue;
       }
-      if (ctx.elapsed < state.arriveAt) continue;
+      if (ctx.elapsed < state.arriveAt) {
+        // Visual-only lob arc: rises then falls back to the ground exactly as the flask arrives.
+        const t = Math.min(1, (ctx.elapsed - state.spawnAt) / TRAVEL_TIME);
+        ctx.projectiles.setHeightOffset(index, Math.sin(t * Math.PI) * LOB_ARC_HEIGHT);
+        continue;
+      }
 
       ctx.projectiles.despawn(index);
       this.flights.delete(index);

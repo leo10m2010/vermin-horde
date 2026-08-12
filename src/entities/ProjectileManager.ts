@@ -51,6 +51,9 @@ export class ProjectileManager {
    * Needed by weapons whose persistent zone/ring visual must track a stat-scaled radius (area passives/arcanas)
    * instead of the fixed size baked into the visual at registerVisual() time - see setSize(). */
   readonly sizeOverride = new Float32Array(this.capacity).fill(-1);
+  /** Per-instance visual-only Y offset added on top of LAYER_Y.projectile - lets a weapon fake a 2.5D parabolic
+   * arc (Axe's throw, Hex Flask's lob) purely for rendering while collisions stay flat on X/Z. Reset to 0 on spawn. */
+  readonly heightOffset = new Float32Array(this.capacity);
 
   private readonly visuals: ProjectileVisual[] = [];
 
@@ -87,6 +90,7 @@ export class ProjectileManager {
     this.animTimer[index] = 0;
     this.spin[index] = 0;
     this.sizeOverride[index] = -1;
+    this.heightOffset[index] = 0;
     return index;
   }
 
@@ -105,6 +109,11 @@ export class ProjectileManager {
    * instance is alive, since a fresh spawn() resets the override back to "use the visual default". */
   setSize(index: number, size: number): void {
     this.sizeOverride[index] = size;
+  }
+
+  /** Visual-only world-unit Y offset for this frame (2.5D arc/lob effect). Does not affect collision, which stays X/Z-only. */
+  setHeightOffset(index: number, offset: number): void {
+    this.heightOffset[index] = offset;
   }
 
   /** Consume one pierce charge; despawns and returns true when exhausted. */
@@ -163,7 +172,7 @@ export class ProjectileManager {
       this.batch.set(
         i,
         this.posX[i],
-        LAYER_Y.projectile,
+        LAYER_Y.projectile + this.heightOffset[i],
         this.posZ[i],
         uv,
         size * facing,

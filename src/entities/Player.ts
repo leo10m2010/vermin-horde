@@ -4,6 +4,7 @@ import { LAYER_Y, PLAYER, WORLD } from '../core/Constants';
 import type { PlayerStats } from '../game/GameState';
 import { gameEvents } from '../core/EventBus';
 import { InstancedBillboardBatch } from '../render/InstancedBillboardBatch';
+import { ShadowBatch } from '../render/ShadowBatch';
 import { advanceAnimFrame, spriteAtlas } from '../render/SpriteAtlas';
 
 export type AnimState = 'idle' | 'walk' | 'hit' | 'death' | 'cast';
@@ -23,6 +24,7 @@ export class Player {
   private castPoseTimer = 0;
   private spriteKeyPrefix: string | null = null;
   readonly batch: InstancedBillboardBatch;
+  readonly shadowBatch = new ShadowBatch(1, 'player-shadow');
 
   private readonly move = new THREE.Vector2();
   private readonly targetVelocity = new THREE.Vector3();
@@ -132,6 +134,8 @@ export class Player {
       flash,
     );
     this.batch.commit();
+    this.shadowBatch.set(0, this.position.x, this.position.z, SPRITE_WORLD_SIZE * 0.3);
+    this.shadowBatch.commit();
   }
 
   /** `${prefix}_${suffix}` if a character is selected and that clip is registered, else null (caller falls back further). */
@@ -143,5 +147,6 @@ export class Player {
 
   dispose(): void {
     this.batch.dispose();
+    this.shadowBatch.dispose();
   }
 }

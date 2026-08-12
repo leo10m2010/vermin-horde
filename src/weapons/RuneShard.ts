@@ -10,6 +10,7 @@ const WANDER_DURATION = 4; // total lifetime once launched
 const DIRECTION_CHANGE_INTERVAL = 0.6;
 const ARENA_SOFT_BOUNDARY = WORLD.halfExtent * 0.8; // beyond this, bias new headings back toward center
 const EVOLVED_SEEK_RANGE = 6; // evolved-only: shards hunt for the nearest enemy within this radius at each turn
+const EXTRA_PROJECTILE_ANGLE = (16 * Math.PI) / 180; // Amount (Ammo Satchel): extra shards fan out from the primary launch heading
 
 /**
  * Fast, tiny, infinite-pierce projectile that never really "aims" after
@@ -62,6 +63,17 @@ export class RuneShardWeapon implements Weapon {
     const damage = (BASE_DAMAGE + 0.8 * (this.level - 1)) * (this.evolved ? 1.3 : 1) * ctx.stats.damageMultiplier;
     const life = WANDER_DURATION * ctx.stats.durationMultiplier;
 
+    this.launchShard(ctx, angle, speed, damage, life);
+    // Amount (Ammo Satchel) is compatible: extra shards launch fanned around the same initial heading, each wandering independently.
+    const extra = Math.max(0, Math.round(ctx.stats.extraProjectiles));
+    for (let i = 0; i < extra; i++) {
+      const side = i % 2 === 0 ? 1 : -1;
+      const step = Math.floor(i / 2) + 1;
+      this.launchShard(ctx, angle + side * step * EXTRA_PROJECTILE_ANGLE, speed, damage, life);
+    }
+  }
+
+  private launchShard(ctx: WeaponContext, angle: number, speed: number, damage: number, life: number): void {
     const index = ctx.projectiles.spawn(this.visualId, ctx.playerX, ctx.playerZ, Math.cos(angle) * speed, Math.sin(angle) * speed, {
       damage,
       radius: 0.28,

@@ -71,26 +71,104 @@ body {
   left: max(14px, env(safe-area-inset-left));
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+}
+
+/* Portrait + name + HP block only becomes visible once a run is underway
+   (see Game.ts toggling `.hud-active` on #hud) - before a character is
+   picked there is no real character to portray, and we never fake one. */
+#hud-portrait-frame,
+#hud-character-col {
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+  pointer-events: none;
+}
+
+#hud.hud-active #hud-portrait-frame,
+#hud.hud-active #hud-character-col {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+#hud-portrait-frame {
+  position: relative;
+  width: 60px;
+  height: 60px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  overflow: hidden;
+  background: radial-gradient(circle at 35% 30%, #241512, #0b0705 78%);
+  border: 2px solid var(--gh-gold);
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.6),
+    0 0 0 1px rgba(0, 0, 0, 0.5),
+    0 4px 10px rgba(0, 0, 0, 0.6);
+}
+
+#hud-portrait {
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  transform: translateX(-50%);
+  width: 84%;
+  height: 84%;
+  image-rendering: pixelated;
+}
+
+@keyframes hud-portrait-flash-damage {
+  0% { box-shadow: inset 0 0 0 1px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.5), 0 0 18px 4px rgba(216, 40, 40, 0.85); }
+  100% { box-shadow: inset 0 0 0 1px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.5), 0 4px 10px rgba(0,0,0,0.6); }
+}
+
+#hud-portrait-frame.hud-flash-damage {
+  animation: hud-portrait-flash-damage 0.4s ease-out;
+}
+
+#hud-character-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+#hud-character-name {
+  font-family: var(--gh-serif);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--gh-gold-bright);
+  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.9);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: clamp(120px, 26vw, 220px);
+}
+
+#hud-level-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 #level-badge {
-  padding: 6px 12px;
+  padding: 3px 8px;
   background: linear-gradient(180deg, rgba(28, 16, 13, 0.9), rgba(6, 4, 3, 0.9));
   border: 1px solid var(--gh-gold-dim);
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.5);
   font-family: var(--gh-serif);
   color: var(--gh-gold-bright);
-  font-size: 0.8rem;
+  font-size: 0.68rem;
   border-radius: 3px;
+  flex: 0 0 auto;
 }
 
 #xp-bar {
-  width: clamp(140px, 32vw, 260px);
-  height: 10px;
+  width: clamp(100px, 20vw, 180px);
+  height: 7px;
   background: rgba(232, 221, 199, 0.14);
   border: 1px solid var(--gh-gold-dim);
-  border-radius: 5px;
+  border-radius: 4px;
   overflow: hidden;
 }
 
@@ -126,16 +204,10 @@ body {
   opacity: 0.82;
 }
 
-#hud-bottom-left {
-  position: absolute;
-  bottom: max(14px, env(safe-area-inset-bottom));
-  left: max(14px, env(safe-area-inset-left));
-}
-
 #health-bar {
   position: relative;
-  width: clamp(160px, 42vw, 320px);
-  height: 22px;
+  width: clamp(130px, 26vw, 220px);
+  height: 16px;
   background: rgba(120, 10, 10, 0.4);
   border: 1px solid var(--gh-gold-dim);
   border-radius: 3px;
@@ -143,7 +215,22 @@ body {
   box-shadow: inset 0 0 8px rgba(0, 0, 0, 0.6);
 }
 
+/* Trailing damage ribbon: same target width as the fill but a much slower
+   transition, so on a hit the fill snaps down immediately while this stays
+   behind briefly showing exactly how much was just lost. On heal it simply
+   catches back up unseen underneath the (now wider) fill. */
+#health-bar-trail {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  width: 100%;
+  background: #d9403a;
+  opacity: 0.65;
+  transition: width 0.6s ease-out;
+}
+
 #health-bar-fill {
+  position: relative;
   height: 100%;
   width: 100%;
   background: linear-gradient(90deg, var(--gh-red), var(--gh-red-glow));
@@ -156,10 +243,82 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.72rem;
+  font-size: 0.62rem;
   letter-spacing: 0.02em;
   color: var(--gh-parchment);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+}
+
+@keyframes hud-heal-pulse {
+  0% { box-shadow: inset 0 0 8px rgba(0,0,0,0.6), 0 0 10px 2px rgba(89, 201, 122, 0.75); }
+  100% { box-shadow: inset 0 0 8px rgba(0,0,0,0.6); }
+}
+
+#health-bar.hud-flash-heal {
+  animation: hud-heal-pulse 0.5s ease-out;
+}
+
+/* --- Power slots: compact row of the 6 active-weapon slots -------------- */
+#hud-power-slots {
+  position: absolute;
+  bottom: max(14px, env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%) translateY(6px);
+  display: flex;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+  pointer-events: none;
+}
+
+#hud.hud-active #hud-power-slots {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.hud-power-slot {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  border-radius: 4px;
+  background: linear-gradient(180deg, rgba(28, 16, 13, 0.85), rgba(6, 4, 3, 0.9));
+  border: 1px solid rgba(232, 221, 199, 0.16);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hud-power-slot--filled {
+  border-color: var(--gh-gold-dim);
+}
+
+.hud-power-slot--evolved {
+  border-color: var(--gh-gold-bright);
+  box-shadow: 0 0 10px rgba(201, 162, 39, 0.5);
+}
+
+.hud-power-slot-icon {
+  width: 22px;
+  height: 22px;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.7));
+}
+
+.hud-power-slot-level {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  min-width: 13px;
+  padding: 0 2px;
+  border-radius: 3px;
+  background: #0b0705;
+  border: 1px solid var(--gh-gold-dim);
+  color: var(--gh-gold-bright);
+  font-size: 0.55rem;
+  font-weight: 700;
+  line-height: 13px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 
 /* --- Boss banner: dramatic horror-movie title card --------------------- */
@@ -223,6 +382,14 @@ body {
   /* Radial vignette - darker toward the edges reads as a horror menu. */
   background: radial-gradient(ellipse at center, rgba(22, 8, 7, 0.6) 0%, rgba(4, 2, 2, 0.93) 100%);
   pointer-events: auto;
+}
+
+/* The main menu sits over MenuScene's own animated 2.5D backdrop (see
+   Game.ts's render() phase branch) - a much lighter veil than the other
+   overlays so that scene actually reads instead of being hidden behind the
+   same heavy vignette used for in-run pause/level-up/game-over screens. */
+#ui-main-menu {
+  background: linear-gradient(180deg, rgba(6, 4, 3, 0.22) 0%, rgba(6, 4, 3, 0.42) 100%);
 }
 
 /* Belt-and-suspenders: `hidden` already removes the element from layout and
@@ -762,6 +929,137 @@ body {
   }
 }
 
+/* --- Pause "build" overview: current character/level + 6 weapons + 6 passives ---- */
+.ui-build {
+  width: 100%;
+}
+
+.ui-build-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  width: 100%;
+  text-align: left;
+}
+
+@media (max-width: 640px) {
+  .ui-build-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ui-build-col-title {
+  margin-bottom: 8px;
+  font-family: var(--gh-serif);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gh-gold-bright);
+  border-bottom: 1px solid var(--gh-gold-dim);
+  padding-bottom: 4px;
+}
+
+.ui-build-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.ui-build-empty {
+  padding: 8px 0;
+  font-size: 0.78rem;
+  font-style: italic;
+  color: var(--gh-parchment-dim);
+  text-transform: none;
+}
+
+.ui-build-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: rgba(232, 221, 199, 0.04);
+  border: 1px solid rgba(232, 221, 199, 0.12);
+  border-radius: 3px;
+}
+
+.ui-build-icon {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  image-rendering: pixelated;
+}
+
+.ui-build-info {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.ui-build-name {
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--gh-parchment);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ui-build-sub {
+  font-size: 0.64rem;
+  color: var(--gh-parchment-dim);
+  text-transform: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.ui-build-badge {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border-radius: 8px;
+  background: rgba(232, 221, 199, 0.08);
+  border: 1px solid var(--gh-gold-dim);
+  color: var(--gh-parchment-dim);
+  font-size: 0.56rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.ui-build-badge--evolved {
+  color: var(--gh-gold-bright);
+  border-color: var(--gh-gold);
+  background: rgba(201, 162, 39, 0.16);
+}
+
+.ui-build-badge--ready {
+  color: #7de698;
+  border-color: #59c97a;
+  background: rgba(89, 201, 122, 0.14);
+  animation: ui-build-ready-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes ui-build-ready-pulse {
+  0%, 100% { box-shadow: 0 0 0 rgba(89, 201, 122, 0); }
+  50% { box-shadow: 0 0 8px rgba(89, 201, 122, 0.6); }
+}
+
+.ui-build-badge--requirement {
+  color: #e8ddc7;
+  opacity: 0.75;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-build-badge--ready {
+    animation: none;
+  }
+}
+
 .ui-upgrade-card {
   appearance: none;
   display: flex;
@@ -799,6 +1097,13 @@ body {
   filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
 }
 
+.ui-upgrade-name-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
 .ui-upgrade-name {
   font-family: var(--gh-serif);
   font-size: 0.98rem;
@@ -806,6 +1111,31 @@ body {
   letter-spacing: 0.03em;
   text-transform: uppercase;
   color: var(--gh-parchment);
+}
+
+.ui-upgrade-level {
+  font-family: var(--gh-serif);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--gh-gold-bright);
+  font-variant-numeric: tabular-nums;
+}
+
+.ui-upgrade-level--new {
+  color: #7de698;
+}
+
+.ui-upgrade-direction {
+  padding: 3px 8px;
+  background: rgba(89, 224, 255, 0.1);
+  border: 1px solid rgba(89, 224, 255, 0.3);
+  border-radius: 3px;
+  color: #9fe8ff;
+  font-size: 0.66rem;
+  font-style: italic;
+  letter-spacing: 0.02em;
+  text-transform: none;
 }
 
 .ui-upgrade-tag {

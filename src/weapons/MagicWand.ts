@@ -27,11 +27,13 @@ export class MagicWandWeapon implements Weapon {
     this.visualId = visuals.get('bolt_basic', 0.55, [1, 1, 1], true);
   }
 
-  private projectileCount(): number {
+  private projectileCount(extraProjectiles: number): number {
     const base = 1 + Math.floor((this.level - 1) / 3);
     // Balance: was +2 - stacked with the evolved cooldown halving and the
     // on-hit chain below for a ~4x+ DPS jump on evolve vs. ~1.7-2x for peers.
-    return this.evolved ? base + 1 : base;
+    const withEvolve = this.evolved ? base + 1 : base;
+    // Amount (Ammo Satchel) is compatible: one more auto-targeted bolt per stack.
+    return withEvolve + Math.max(0, Math.round(extraProjectiles));
   }
 
   private pierce(): number {
@@ -43,7 +45,7 @@ export class MagicWandWeapon implements Weapon {
     this.cooldown -= ctx.dt;
     if (this.cooldown > 0) return;
 
-    const count = this.projectileCount();
+    const count = this.projectileCount(ctx.stats.extraProjectiles);
     const found = findNearestEnemies(ctx, ctx.playerX, ctx.playerZ, RANGE, count, this.targetBuffer);
     if (found === 0) return;
 

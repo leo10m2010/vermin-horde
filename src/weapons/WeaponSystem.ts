@@ -131,12 +131,27 @@ export class WeaponSystem {
     if (!weapon) return false;
     if (weapon.level >= weapon.maxLevel) return false;
     weapon.levelUp();
-    const passiveSatisfied = !weapon.evolutionRequiresPassive || (this.ownedPassives.get(weapon.evolutionRequiresPassive) ?? 0) > 0;
-    if (weapon.level >= weapon.maxLevel && !weapon.evolved && weapon.evolve && passiveSatisfied) {
-      weapon.evolve();
-      gameEvents.emit('weaponEvolved', { weaponId: weapon.id, name: weapon.name });
-    }
+    this.tryEvolve(weapon);
     return true;
+  }
+
+  private tryEvolve(weapon: Weapon): void {
+    if (weapon.level < weapon.maxLevel || weapon.evolved || !weapon.evolve) return;
+    const passiveSatisfied = !weapon.evolutionRequiresPassive || (this.ownedPassives.get(weapon.evolutionRequiresPassive) ?? 0) > 0;
+    if (!passiveSatisfied) return;
+    weapon.evolve();
+    gameEvents.emit('weaponEvolved', { weaponId: weapon.id, name: weapon.name });
+  }
+
+  /**
+   * Picking up the gating passive AFTER a weapon already sat at max level
+   * never re-ran the evolve check (only levelUp() did), so that weapon could
+   * get stuck "ready but never evolved" forever. Called right after a
+   * passive pick is applied (see UpgradeSystem.apply) to close that gap -
+   * cheap since at most 6 weapons are ever owned.
+   */
+  checkPendingEvolutions(): void {
+    for (const weapon of this.owned.values()) this.tryEvolve(weapon);
   }
 
   hasWeapon(id: string): boolean {

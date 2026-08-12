@@ -3,6 +3,7 @@ import type { PlayerStats } from '../game/GameState';
 import { t } from '../i18n';
 import { bonusSlotChance, totalLuck } from '../utils/luck';
 import { WEAPON_ROSTER } from '../weapons/WeaponRegistry';
+import { getWeaponLevelStep, getWeaponMetadata } from '../weapons/WeaponMetadata';
 import type { WeaponSystem } from '../weapons/WeaponSystem';
 
 export interface UpgradeOption {
@@ -10,13 +11,21 @@ export interface UpgradeOption {
   name: string;
   description: string;
   kind: 'new-weapon' | 'weapon-level' | 'passive';
+  /** Current level/stack (weapon-level and passive kinds only) - lets the card show "Lv X -> Y". */
+  fromLevel?: number;
+  toLevel?: number;
+  /** Attack-pattern hint shown on new-weapon cards, e.g. "Dirección de movimiento". */
+  directionLabel?: string;
 }
+
+/** Max distinct passive TYPES the player may hold at once (existing ones can still keep stacking past this). */
+const MAX_PASSIVE_TYPES = 6;
 
 interface WeightedOption extends UpgradeOption {
   weight: number;
 }
 
-interface PassiveDef {
+export interface PassiveDef {
   id: string;
   name: string;
   description: string;
@@ -26,7 +35,7 @@ interface PassiveDef {
 }
 
 /** Stackable passive stat boosts. Modest per-pick increments so a full run of picks stays balanced. */
-const PASSIVE_DEFS: PassiveDef[] = [
+export const PASSIVE_DEFS: PassiveDef[] = [
   {
     id: 'passive_damage',
     name: 'Power Charm',
@@ -166,11 +175,15 @@ export class UpgradeSystem {
     if (this.weapons.ownedCount() < this.weapons.maxSlots) {
       for (const entry of WEAPON_ROSTER) {
         if (ownedIds.has(entry.id)) continue;
+        const meta = getWeaponMetadata(entry.id);
         pool.push({
           id: entry.id,
           name: entry.name,
-          description: `${t('Unlock')} ${t(entry.name)} - ${t('a new attack.')}`,
+          description: meta ? t(meta.description) : `${t('Unlock')} ${t(entry.name)} - ${t('a new attack.')}`,
           kind: 'new-weapon',
+          directionLabel: meta ? t(meta.directionLabel) : undefined,
+          fromLevel: 0,
+          toLevel: 1,
           weight: BASE_WEIGHT,
         });
       }
@@ -178,23 +191,35 @@ export class UpgradeSystem {
 
     for (const owned of this.weapons.listOwned()) {
       if (owned.level >= owned.maxLevel) continue;
+      const toLevel = owned.level + 1;
+      const step = getWeaponLevelStep(owned.id, toLevel);
+      const description = step ? t(step.summary) + (step.detail ? ` (${t(step.detail)})` : '') : `${t('Level up')} ${t(owned.name)} ${t('to level')} ${toLevel}.`;
       pool.push({
         id: owned.id,
         name: owned.name,
-        description: `${t('Level up')} ${t(owned.name)} ${t('to level')} ${owned.level + 1}.`,
+        description,
         kind: 'weapon-level',
+        fromLevel: owned.level,
+        toLevel,
         weight: BASE_WEIGHT * ownedWeightMult,
       });
     }
 
+    // 6-passive-type cap: once the player already holds MAX_PASSIVE_TYPES
+    // distinct passives, the pool only offers further stacks of THOSE - never
+    // a brand-new 7th type - even if a slot elsewhere is technically free.
+    const distinctPassiveTypes = ownedPassives.size;
     for (const passive of PASSIVE_DEFS) {
       const owned = ownedPassives.get(passive.id) ?? 0;
       if (owned >= passive.maxStacks) continue;
+      if (owned === 0 && distinctPassiveTypes >= MAX_PASSIVE_TYPES) continue;
       pool.push({
         id: passive.id,
         name: passive.name,
         description: passive.description,
         kind: 'passive',
+        fromLevel: owned,
+        toLevel: owned + 1,
         weight: owned > 0 ? BASE_WEIGHT * ownedWeightMult : BASE_WEIGHT,
       });
     }
@@ -235,6 +260,10 @@ export class UpgradeSystem {
       def?.apply(stats);
       ownedPassives.set(option.id, (ownedPassives.get(option.id) ?? 0) + 1);
       gameEvents.emit('passiveGained', { id: option.id, name: option.name });
+      // A weapon that hit max level before this passive was owned may now
+      // satisfy its evolution requirement - re-check instead of leaving it
+      // stuck un-evolved until a level-up pick that will never come.
+      this.weapons.checkPendingEvolutions();
     }
     gameEvents.emit('upgradeChosen', { id: option.id, name: option.name });
   }

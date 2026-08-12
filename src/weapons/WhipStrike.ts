@@ -11,11 +11,13 @@ const EVOLVED_KNOCKBACK_DISTANCE = 0.9; // evolved-only: instant push-back appli
 
 /**
  * Melee weapon: no projectile hit-testing - directly damages every enemy
- * inside a short rectangular band that extends both in FRONT of and BEHIND
- * the player along their current facing axis (mirrors real VS's whip, which
- * swings through the character rather than only outward). Facing comes from
- * current velocity; while stationary the last non-zero facing is reused so
- * the band doesn't collapse to a fixed default.
+ * inside a short rectangular band along the player's current facing axis.
+ * Progression is the whole point of this weapon's identity: Lv1 only ever
+ * hits in FRONT of the player; reaching Lv2 visibly unlocks a second strike
+ * BEHIND them too (mirrors real VS's whip, which swings through the
+ * character once upgraded). Facing comes from current velocity; while
+ * stationary the last non-zero facing is reused so the band doesn't collapse
+ * to a fixed default.
  */
 export class WhipStrikeWeapon implements Weapon {
   readonly id = 'whip_strike';
@@ -57,6 +59,10 @@ export class WhipStrikeWeapon implements Weapon {
     const perpX = -this.facingZ;
     const perpZ = this.facingX;
 
+    // Lv1 only ever strikes in front; the rear strike is a Lv2+ unlock so the
+    // upgrade reads as a visible new attack, not a hidden number change.
+    const hitsBehind = this.level >= 2;
+
     const queryRadius = Math.sqrt(reach * reach + halfWidth * halfWidth);
     const count = ctx.enemies.queryRadius(ctx.playerX, ctx.playerZ, queryRadius, this.hitBuffer);
     let hitAny = false;
@@ -66,6 +72,7 @@ export class WhipStrikeWeapon implements Weapon {
       const dz = ctx.enemies.posZ[enemyIndex] - ctx.playerZ;
       const along = dx * this.facingX + dz * this.facingZ; // signed distance along facing (front positive, behind negative)
       const across = dx * perpX + dz * perpZ; // signed lateral offset
+      if (along < 0 && !hitsBehind) continue; // Lv1: front-only
       if (Math.abs(along) > reach || Math.abs(across) > halfWidth) continue;
       const crit = ctx.rng() < ctx.stats.critChance;
       const dmg = damage * (crit ? ctx.stats.critMultiplier : 1);
@@ -79,7 +86,8 @@ export class WhipStrikeWeapon implements Weapon {
       }
     }
 
-    // Decorative slash instances on both sides so the swing reads visually even with no kills.
+    // Decorative slash instance(s): front always, rear only once Lv2+ unlocks
+    // it - so the visual swing matches exactly what can and can't be hit.
     ctx.projectiles.spawn(this.visualId, ctx.playerX + this.facingX * reach * 0.5, ctx.playerZ + this.facingZ * reach * 0.5, 0, 0, {
       damage: 0,
       radius: 0,
@@ -87,13 +95,15 @@ export class WhipStrikeWeapon implements Weapon {
       life: SLASH_VISUAL_LIFE,
       weaponId: this.weaponNumericId,
     });
-    ctx.projectiles.spawn(this.visualId, ctx.playerX - this.facingX * reach * 0.5, ctx.playerZ - this.facingZ * reach * 0.5, 0, 0, {
-      damage: 0,
-      radius: 0,
-      pierce: 0,
-      life: SLASH_VISUAL_LIFE,
-      weaponId: this.weaponNumericId,
-    });
+    if (hitsBehind) {
+      ctx.projectiles.spawn(this.visualId, ctx.playerX - this.facingX * reach * 0.5, ctx.playerZ - this.facingZ * reach * 0.5, 0, 0, {
+        damage: 0,
+        radius: 0,
+        pierce: 0,
+        life: SLASH_VISUAL_LIFE,
+        weaponId: this.weaponNumericId,
+      });
+    }
 
     if (hitAny) gameEvents.emit('weaponFired', { weaponId: this.id, x: ctx.playerX, z: ctx.playerZ });
   }

@@ -12,6 +12,7 @@ const ORBIT_RADIUS = 1.7;
 const ORBIT_ANGULAR_SPEED = 7; // rad/s
 const ORBIT_DURATION = 0.5; // seconds spent circling the player before despawning
 const TURN_RATE = 6; // rad/s max steering while returning
+const EXTRA_PROJECTILE_ANGLE = (12 * Math.PI) / 180; // Amount (Ammo Satchel): extra crosses fan out from the primary launch angle
 
 type Phase = 'out' | 'return' | 'orbit';
 
@@ -67,12 +68,23 @@ export class ArcCrossWeapon implements Weapon {
 
     const dx = ctx.enemies.posX[target] - ctx.playerX;
     const dz = ctx.enemies.posZ[target] - ctx.playerZ;
-    const dist = Math.sqrt(dx * dx + dz * dz) || 1;
+    const baseAngle = Math.atan2(dz, dx);
     const speed = BASE_SPEED * ctx.stats.projectileSpeedMultiplier;
     const damage = (BASE_DAMAGE + 1.7 * (this.level - 1)) * (this.evolved ? 1.35 : 1) * ctx.stats.damageMultiplier;
     const totalLife = TOTAL_LIFE * ctx.stats.durationMultiplier;
 
-    const index = ctx.projectiles.spawn(this.visualId, ctx.playerX, ctx.playerZ, (dx / dist) * speed, (dz / dist) * speed, {
+    this.launchCross(ctx, target, baseAngle, speed, damage, totalLife);
+    // Amount (Ammo Satchel) is compatible: extra crosses launch fanned around the same target heading, each returning independently.
+    const extra = Math.max(0, Math.round(ctx.stats.extraProjectiles));
+    for (let i = 0; i < extra; i++) {
+      const side = i % 2 === 0 ? 1 : -1;
+      const step = Math.floor(i / 2) + 1;
+      this.launchCross(ctx, target, baseAngle + side * step * EXTRA_PROJECTILE_ANGLE, speed, damage, totalLife);
+    }
+  }
+
+  private launchCross(ctx: WeaponContext, target: number, angle: number, speed: number, damage: number, totalLife: number): void {
+    const index = ctx.projectiles.spawn(this.visualId, ctx.playerX, ctx.playerZ, Math.cos(angle) * speed, Math.sin(angle) * speed, {
       damage,
       radius: 0.42,
       pierce: this.pierce(),

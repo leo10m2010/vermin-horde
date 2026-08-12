@@ -26,13 +26,18 @@ import { UpgradeSystem, type UpgradeOption } from '../systems/UpgradeSystem';
 import { ArcanaSystem, type ArcanaDef } from '../systems/ArcanaSystem';
 import { TreasureSystem } from '../systems/TreasureSystem';
 import { ParticleSystem, DamageNumbers, BossTelegraphRings, ProjectileTrails, GemCollectEffect, LevelUpEffects, EliteAura, GroundAreaRings } from '../vfx';
-import { UiRoot, type UpgradeOptionLike } from '../ui/UiRoot';
+import { UiRoot, type UpgradeOptionLike, type PauseBuildInfo } from '../ui/UiRoot';
+import { getWeaponMetadata, WEAPON_EVOLUTION_PASSIVE_ID } from '../weapons/WeaponMetadata';
+import { PASSIVE_DEFS } from '../systems/UpgradeSystem';
 import { CharacterSelect } from '../ui/CharacterSelect';
 import { StageSelect } from '../ui/StageSelect';
 import { Shop } from '../ui/Shop';
 import { ArcanaPicker } from '../ui/ArcanaPicker';
 import { AudioManager } from '../audio/AudioManager';
 import { t } from '../i18n';
+import { drawCharacterPortrait } from '../render/SpriteLibraryCharacters';
+import { getUpgradeIconDataUrl } from '../ui/Icons';
+import { MenuScene } from '../render/MenuScene';
 
 const VICTORY_SECONDS = DIFFICULTY.rampSeconds; // survive the full escalation arc to win
 const PLAYER_START_INVULN = 0.8;
@@ -67,6 +72,9 @@ export class Game {
   /** Flat ground rings for weapon AoE indicators (Garlic's aura, Hex Flask's zones) - capacity covers Garlic's 1 permanent ring plus several concurrent Hex Flask zones with margin. */
   private readonly groundRings = new GroundAreaRings(20, 'vfx-weapon-ground-rings');
   private readonly audio = new AudioManager();
+  /** Independent Three.js scene/camera for the main-menu backdrop - swapped into the shared renderer instead of the gameplay scene while phase === 'menu' (see render()).
+   * Constructed in the constructor BODY (not as a field initializer) - it builds its own InstancedBillboardBatch sampling `spriteAtlas.texture`, and field initializers run before spriteAtlas.build() rasterizes real pixels into that texture, same trap the comment below already works around for every other batch. */
+  private readonly menuScene: MenuScene;
   private readonly ui: UiRoot;
   private readonly characterSelect: CharacterSelect;
   private readonly stageSelect: StageSelect;
@@ -77,6 +85,9 @@ export class Game {
   private selectedCharacter: CharacterDef = CHARACTERS[0];
   private selectedStage: StageDef = STAGES[0];
   private goldAtRunStart = 0;
+  private readonly powerSlotEls: Array<{ root: HTMLElement; icon: HTMLImageElement; level: HTMLElement }> = [];
+  private lastHudHealth = -1;
+  private lastPowerSlotSignature = '';
 
   private readonly loop = new Loop(
     (delta, elapsed) => this.update(delta, elapsed),
@@ -122,6 +133,9 @@ export class Game {
     this.arcanaSystem = new ArcanaSystem(() => this.rng());
     this.treasures = new TreasureSystem(this.upgradeSystem, () => this.rng());
     this.treasures.batch.setTexture(spriteAtlas.texture);
+    // Built here (not as a field initializer, see the field's own comment) so its internal
+    // character billboard batch samples the atlas texture only after build() has real pixels.
+    this.menuScene = new MenuScene();
 
     const uiRootEl = this.getElement('#ui-root');
     this.ui = new UiRoot(uiRootEl, {
@@ -151,8 +165,35 @@ export class Game {
     this.installTestHooks();
     this.bindEvents();
     this.applyStaticHudTranslations();
+    this.buildPowerSlots();
+    // Respect the OS-level setting for the WebGL side too - CSS already
+    // covers the DOM/menu-backdrop animations on its own via @media queries.
+    this.applyReducedMotion(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false);
+    this.menuScene.playIntro();
     this.ui.showMainMenu();
     this.publishDiagnostics();
+  }
+
+  private applyReducedMotion(enabled: boolean): void {
+    this.reducedMotion = enabled;
+    this.menuScene.setReducedMotion(enabled);
+  }
+
+  /** Builds the 6 fixed power-slot DOM nodes once; updatePowerSlots() only ever mutates their icon/level/classes afterward. */
+  private buildPowerSlots(): void {
+    const container = this.getElement('#hud-power-slots');
+    for (let i = 0; i < 6; i++) {
+      const root = document.createElement('div');
+      root.className = 'hud-power-slot';
+      const icon = document.createElement('img');
+      icon.className = 'hud-power-slot-icon';
+      icon.alt = '';
+      const level = document.createElement('div');
+      level.className = 'hud-power-slot-level';
+      root.append(icon, level);
+      container.append(root);
+      this.powerSlotEls.push({ root, icon, level });
+    }
   }
 
   /** index.html's HUD labels ("Lv", "muertes") are static markup, not JS-rendered - translate them once at boot instead of on every updateHud() call. */
@@ -170,6 +211,7 @@ export class Game {
   dispose(): void {
     this.loop.stop();
     this.input.dispose();
+    this.menuScene.dispose();
     this.player.dispose();
     this.enemies.dispose();
     this.projectiles.dispose();
@@ -196,6 +238,9 @@ export class Game {
     this.groundMesh = createGroundMesh();
     this.scene.add(this.groundMesh);
     this.scene.add(this.stageDecor.batch.mesh);
+    // Flat ground shadows first, so every character/enemy billboard draws on top of its own blob.
+    this.scene.add(this.player.shadowBatch.mesh);
+    this.scene.add(this.enemies.shadowBatch.mesh);
     this.scene.add(this.player.batch.mesh);
     this.scene.add(this.enemies.batch.mesh);
     this.scene.add(this.projectiles.batch.mesh);
@@ -291,6 +336,7 @@ export class Game {
     this.player.setSpriteKey(this.selectedCharacter.spriteKey);
 
     this.applyStage(this.selectedStage);
+    this.activateRunHud();
 
     this.cameraRig.snapTo(this.player.position);
     this.ui.hideAll();
@@ -305,8 +351,32 @@ export class Game {
   private pauseRun(): void {
     if (this.state.phase !== 'playing') return;
     this.state.phase = 'paused';
-    this.ui.showPause();
+    this.ui.showPause(this.buildPauseSummary());
     gameEvents.emit('runPaused', { paused: true });
+  }
+
+  /** Assembles the full current build (6 weapon slots + owned passives) for the pause overlay, so the player can see exactly what run they're playing. */
+  private buildPauseSummary(): PauseBuildInfo {
+    const weapons = this.weaponSystem.listOwned().map((w) => {
+      const meta = getWeaponMetadata(w.id);
+      const requirementId = WEAPON_EVOLUTION_PASSIVE_ID[w.id];
+      const requirementOwned = !requirementId || (this.state.ownedPassives.get(requirementId) ?? 0) > 0;
+      return {
+        id: w.id,
+        name: w.name,
+        level: w.level,
+        maxLevel: w.maxLevel,
+        evolved: w.evolved,
+        evolvedName: meta?.evolvedName,
+        requirementName: meta?.evolutionRequirementName,
+        requirementOwned,
+      };
+    });
+    const passives = Array.from(this.state.ownedPassives.entries()).map(([id, count]) => {
+      const def = PASSIVE_DEFS.find((p) => p.id === id);
+      return { id, name: def?.name ?? id, count, maxStacks: def?.maxStacks ?? count };
+    });
+    return { characterName: this.selectedCharacter.name, level: this.state.run.level, weapons, passives };
   }
 
   private resumeRun(): void {
@@ -326,6 +396,22 @@ export class Game {
     this.groundRings.clear();
     this.ui.hideAll();
     this.ui.showMainMenu();
+    this.getElement('#hud').classList.remove('hud-active');
+  }
+
+  /** Draws the REAL selected character's portrait/name into the top-left HUD block and reveals it - called once per run start, never faked to a generic sprite. */
+  private activateRunHud(): void {
+    const canvas = this.getElement('#hud-portrait') as HTMLCanvasElement;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.imageSmoothingEnabled = false;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawCharacterPortrait(ctx, canvas.width, this.selectedCharacter.spriteKey);
+    }
+    this.getElement('#hud-character-name').textContent = this.selectedCharacter.name;
+    this.getElement('#hud').classList.add('hud-active');
+    this.lastHudHealth = this.state.stats.health;
+    this.lastPowerSlotSignature = '';
   }
 
   private triggerGameOver(): void {
@@ -404,6 +490,9 @@ export class Game {
     if (playing) this.state.run.elapsed += delta;
 
     const animDelta = this.reducedMotion ? 0 : delta;
+
+    if (this.state.phase === 'menu') this.menuScene.update(animDelta, elapsed);
+
     this.player.update(playing ? animDelta : 0, this.input, this.state.stats, !playing);
 
     if (playing) {
@@ -516,14 +605,59 @@ export class Game {
     timer.textContent = `${m}:${s}`;
     const kills = this.getElement('#hud-kill-count');
     kills.textContent = String(this.state.run.kills);
-    const healthFill = this.getElement('#health-bar-fill');
-    healthFill.style.width = `${Math.max(0, (this.state.stats.health / this.state.stats.maxHealth) * 100)}%`;
+
+    const healthFrac = this.state.stats.maxHealth > 0 ? Math.max(0, this.state.stats.health / this.state.stats.maxHealth) : 0;
+    const healthPct = `${healthFrac * 100}%`;
+    this.getElement('#health-bar-fill').style.width = healthPct;
+    // Same target width, slower CSS transition (styles.css) - creates the trailing-damage ribbon effect for free.
+    this.getElement('#health-bar-trail').style.width = healthPct;
     const healthText = this.getElement('#health-text');
     healthText.textContent = `${Math.ceil(Math.max(0, this.state.stats.health))}/${Math.ceil(this.state.stats.maxHealth)}`;
+
+    if (this.lastHudHealth >= 0 && this.state.stats.health > this.lastHudHealth + 0.01) this.retriggerAnimClass('hud-flash-heal', '#health-bar');
+    this.lastHudHealth = this.state.stats.health;
+
+    this.updatePowerSlots();
+  }
+
+  /** Retriggers a CSS entrance animation class (remove -> reflow -> re-add) so repeated triggers restart cleanly instead of being no-ops. */
+  private retriggerAnimClass(className: string, selector: string): void {
+    const el = this.getElement(selector);
+    el.classList.remove(className);
+    void el.offsetWidth;
+    el.classList.add(className);
+  }
+
+  /** Cheap DOM diffing: only touches icon/level/class when the owned-weapon signature actually changed, since this runs every frame. */
+  private updatePowerSlots(): void {
+    const owned = this.weaponSystem.listOwned();
+    const signature = owned.map((w) => `${w.id}:${w.level}:${w.evolved ? 1 : 0}`).join('|');
+    if (signature === this.lastPowerSlotSignature) return;
+    this.lastPowerSlotSignature = signature;
+
+    for (let i = 0; i < this.powerSlotEls.length; i++) {
+      const slot = this.powerSlotEls[i];
+      const weapon = owned[i];
+      if (!weapon) {
+        slot.root.className = 'hud-power-slot';
+        slot.icon.src = '';
+        slot.icon.style.visibility = 'hidden';
+        slot.level.textContent = '';
+        continue;
+      }
+      slot.icon.style.visibility = 'visible';
+      slot.icon.src = getUpgradeIconDataUrl(weapon.id);
+      slot.level.textContent = weapon.evolved ? '★' : String(weapon.level);
+      slot.root.className = `hud-power-slot hud-power-slot--filled${weapon.evolved ? ' hud-power-slot--evolved' : ''}`;
+    }
   }
 
   private render(): void {
-    this.renderer.render(this.scene, this.camera);
+    if (this.state.phase === 'menu') {
+      this.renderer.render(this.menuScene.scene, this.menuScene.camera);
+    } else {
+      this.renderer.render(this.scene, this.camera);
+    }
   }
 
   private minuteToastEl: HTMLElement | null = null;
@@ -572,6 +706,7 @@ export class Game {
     });
     gameEvents.on('screenShake', (e) => this.cameraRig.shake(e.intensity, e.duration));
     gameEvents.on('enemyAttackRequest', (e) => this.applyPlayerDamage(e.damage));
+    gameEvents.on('playerHit', () => this.retriggerAnimClass('hud-flash-damage', '#hud-portrait-frame'));
     gameEvents.on('bossSpawned', (e) => {
       this.ui.showBossBanner(e.name);
       this.particles.spawnBurst(e.x, e.z, { count: 60, colorHex: '#ff8a3d', speed: 9, life: 1.1 });
@@ -597,9 +732,11 @@ export class Game {
     // Weapon evolution is a headline "special power" moment - give it a
     // distinct, unmissable flourish instead of the quiet stat-only change it
     // had before.
-    gameEvents.on('weaponEvolved', () => {
+    gameEvents.on('weaponEvolved', (e) => {
       this.particles.spawnBurst(this.player.position.x, this.player.position.z, { count: 46, colorHex: '#ffe066', speed: 7, life: 0.9 });
       this.cameraRig.shake(0.22, 0.3);
+      const evolvedName = getWeaponMetadata(e.weaponId)?.evolvedName;
+      this.showToast(`${t('EVOLUCIÓN')} — ${evolvedName ? t(evolvedName) : e.name}`);
     });
     gameEvents.on('runOver', (e) => {
       const stats = {
@@ -632,9 +769,7 @@ export class Game {
       setPausedForScreenshot: (paused: boolean) => {
         this.pausedForScreenshot = paused;
       },
-      setReducedMotion: (enabled: boolean) => {
-        this.reducedMotion = enabled;
-      },
+      setReducedMotion: (enabled: boolean) => this.applyReducedMotion(enabled),
       hideDebugUi: () => {
         /* no debug GUI yet */
       },
@@ -674,6 +809,7 @@ export class Game {
       levelUpWeapon: (id: string) => this.weaponSystem.levelUp(id),
       grantPassive: (id: string) => {
         this.state.ownedPassives.set(id, (this.state.ownedPassives.get(id) ?? 0) + 1);
+        this.weaponSystem.checkPendingEvolutions();
       },
     };
   }

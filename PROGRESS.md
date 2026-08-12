@@ -122,6 +122,26 @@ En cada ronda se verificó con: `tsc --noEmit`, `npm run build`, la suite de Pla
 
 ---
 
+## 6bis. Ronda 5 (2026-08-11/12): identidad de poderes, HUD superior, menú 2.5D
+
+Pasada grande de pulido visual y de progresión sobre el juego ya jugable descrito arriba (sin tocar arquitectura, sin nuevos motores, sin destruir sistemas existentes):
+
+- **Capa de metadata de armas** (`src/weapons/WeaponMetadata.ts`, nuevo): `attackPattern`, `directionLabel`, `evolvedName`, `evolutionRequirementName`, `levelSteps` (qué cambia exactamente en cada nivel 2-8) para las 11 armas, consumida por el level-up picker y el panel de pausa. La lógica de cada arma (`update()`/`levelUp()`) sigue siendo propia de cada archivo - esto es solo la capa descriptiva, nunca la fuente de verdad numérica.
+- **Direccionalidad rehecha**: Knife ahora es puramente direccional (dirección de movimiento/última usada, ya no auto-apunta), con 1→2→3→4 cuchillos en niveles 1/2/4/7. Whip Strike golpea solo al frente en nivel 1 y desbloquea el golpe trasero en nivel 2 (antes golpeaba ambos lados desde el inicio). Holy Blades (orbiter) redistribuye 1→2→3→4→5 hojas en niveles 1/2/4/6/8.
+- **Amount (`extraProjectiles`) auditado**: ahora afecta visiblemente a Knife, Magic Wand, Axe, Rune Shard y Arc Cross (proyectiles extra en abanico); Garlic/Whip/Orbiter/Fireball/Ember Wand/Hex Flask no responden a esa stat (no son "proyectiles" conceptualmente).
+- **Altura visual 2.5D en proyectiles**: `ProjectileManager` soporta un `heightOffset` por instancia (puramente visual, la colisión sigue en X/Z); Axe tiene un pequeño arco de lanzamiento y Hex Flask un lob real hacia su zona de aterrizaje.
+- **Level-up cards exactas**: cada tarjeta muestra icono, "Nivel X → Y" (o "Nueva"), tipo de mejora y la descripción exacta del cambio (`WeaponLevelStep`), no un texto genérico.
+- **Límite de 6 pasivas distintas**: `UpgradeSystem.rollChoices` ya no ofrece un 7º tipo de pasiva una vez el jugador tiene 6 tipos distintos (sigue ofreciendo subir las que ya tiene).
+- **Evolución retroactiva**: si un arma llega a nivel máximo antes de conseguir la pasiva que le falta, evolucionar ya no se pierde para siempre - `WeaponSystem.checkPendingEvolutions()` se re-verifica justo al recoger esa pasiva.
+- **HUD superior** (`index.html`/`styles.css`/`Game.ts`): retrato circular real del personaje seleccionado (`drawCharacterPortrait`) + nombre + barra de HP con ribbon de daño rezagado + flash al golpe/pulso al curar, todo arriba a la izquierda; fila de 6 slots de poder (icono + nivel/★) abajo al centro.
+- **CharacterSelect.ts rediseñado**: lista vertical a la izquierda, preview grande a la derecha (retrato, arma inicial con patrón de ataque, rasgo, 6 barras de stats reales calculadas vía `applyTrait()`, dificultad), paleta gótica unificada con el resto del juego.
+- **MenuScene.ts** (nuevo, `src/render/`): escena Three.js independiente para el fondo del menú (luna, lápidas/columnas, monstruo lejano, personaje en idle, niebla/brasas instanciadas), intercambiada en el mismo `WebGLRenderer` cuando `phase==='menu'`. Intro por fases (fade → luces → dolly corto → idle) y `setReducedMotion`.
+- **Sombras falsas instanciadas** (`ShadowBatch`, nuevo): un decal plano por jugador/enemigo, un draw call extra para hasta 1600 sombras - ya no parecen flotar sobre el suelo.
+- **Panel de pausa "build"**: personaje + nivel, 6 poderes (nivel, evolucionado/listo-para-evolucionar/requiere-X) y pasivas poseídas con stacks.
+- **QA de esta ronda**: `tsc --noEmit` limpio, `npm run build` OK, `npm test` (4/4, 1 skip esperado en mobile-safari), `inspect:canvas` (60 FPS, 29 draw calls, dentro de presupuesto), y un playtest scripted con Playwright real (no el Browser pane embebido, que no compone frames para este juego) cubriendo menú → personaje → run → 6 armas a nivel 8 con evolución → jefe → pausa/build → game over → restart → victory → vuelta al menú, sin errores de consola en ningún punto.
+
+Pendiente natural para una próxima ronda: pase de balance dedicado tras estos cambios de dirección/Amount; profundizar props/columnas dentro de la ARENA de juego (no solo el menú); progresión visual "milestone" tan explícita como Knife/Whip/Orbiter para las 8 armas restantes (ya tienen metadata y escalado, pero no todas tienen un cambio de mecánica cada 2-3 niveles tan marcado).
+
 ## 6. Limitaciones conocidas / siguiente ronda sugerida
 
 - **Números de daño no están instanciados**: cada uno es un `THREE.Sprite` + `CanvasTexture` propio (no comparte draw call). Se acotó el pool a 48 para limitar el peor caso, pero una reescritura a un atlas de dígitos instanciado eliminaría esta única excepción a la regla de "todo en un draw call".

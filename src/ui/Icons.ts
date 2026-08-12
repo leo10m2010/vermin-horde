@@ -77,6 +77,43 @@ const DRAWERS: Record<string, Draw> = {
     px(ctx, 12, 20, 3, 5, '#b06dff');
     ring(ctx, 14, 14, 9, 1, 'rgba(176,109,255,0.35)');
   },
+  whip_strike: (ctx) => {
+    px(ctx, 6, 20, 4, 4, '#8a6a3a');
+    px(ctx, 9, 17, 3, 3, '#c98a3a');
+    px(ctx, 12, 14, 3, 3, '#e05a5a');
+    px(ctx, 15, 11, 3, 3, '#e05a5a');
+    px(ctx, 18, 8, 3, 3, '#ff8a3d');
+    px(ctx, 21, 5, 3, 3, '#ffd35c');
+  },
+  arc_cross: (ctx) => {
+    px(ctx, 12, 4, 4, 20, '#e7ecf2');
+    px(ctx, 4, 12, 20, 4, '#e7ecf2');
+    px(ctx, 11, 3, 6, 3, '#ffd35c');
+    px(ctx, 11, 22, 6, 3, '#ffd35c');
+    px(ctx, 3, 11, 3, 6, '#ffd35c');
+    px(ctx, 22, 11, 3, 6, '#ffd35c');
+  },
+  ember_wand: (ctx) => {
+    px(ctx, 9, 15, 4, 12, '#8a6a3a');
+    circle(ctx, 14, 12, 6, '#ff5a2f');
+    circle(ctx, 14, 12, 3.5, '#ffd35c');
+    px(ctx, 18, 6, 2, 3, '#ff8a3d');
+    px(ctx, 8, 5, 2, 3, '#ff8a3d');
+  },
+  rune_shard: (ctx) => {
+    px(ctx, 13, 3, 3, 8, '#b06dff');
+    px(ctx, 8, 11, 5, 5, '#7a3fd6');
+    px(ctx, 15, 11, 5, 5, '#7a3fd6');
+    px(ctx, 12, 16, 4, 8, '#59e0ff');
+    px(ctx, 13, 24, 2, 2, '#fff6d8');
+  },
+  hex_flask: (ctx) => {
+    px(ctx, 12, 3, 4, 4, '#8a6a3a');
+    px(ctx, 10, 8, 8, 5, '#3f8f4a');
+    px(ctx, 8, 13, 12, 10, 'rgba(166,255,140,0.85)');
+    px(ctx, 11, 16, 6, 4, '#a6ff8c');
+    px(ctx, 6, 24, 16, 3, 'rgba(166,255,140,0.4)');
+  },
   passive_damage: (ctx) => {
     px(ctx, 12, 4, 4, 10, '#ff5a4d');
     px(ctx, 8, 10, 12, 4, '#ff5a4d');
@@ -149,6 +186,27 @@ const DRAWERS: Record<string, Draw> = {
     circle(ctx, 8, 10, 3, '#ffd35c');
     circle(ctx, 20, 10, 3, '#ffd35c');
     circle(ctx, 14, 19, 3, '#ffd35c');
+  },
+  passive_duration: (ctx) => {
+    ring(ctx, 14, 14, 10, 2, '#f2f0e6');
+    px(ctx, 13, 6, 2, 8, '#f2f0e6');
+    px(ctx, 14, 13, 6, 2, '#f2f0e6');
+    circle(ctx, 14, 14, 1.6, '#ffd35c');
+  },
+  passive_growth: (ctx) => {
+    px(ctx, 12, 18, 4, 8, '#59c97a');
+    px(ctx, 8, 22, 12, 4, '#3a8a52');
+    px(ctx, 13, 10, 2, 8, '#59c97a');
+    px(ctx, 10, 12, 3, 3, '#7de698');
+    px(ctx, 15, 12, 3, 3, '#7de698');
+    circle(ctx, 14, 7, 3, '#ffd35c');
+  },
+  passive_revival: (ctx) => {
+    px(ctx, 11, 4, 6, 6, '#ff8a3d');
+    px(ctx, 8, 10, 12, 8, '#ffd35c');
+    px(ctx, 10, 18, 8, 5, '#ff8a3d');
+    px(ctx, 6, 8, 3, 5, '#ff5a2f');
+    px(ctx, 19, 8, 3, 5, '#ff5a2f');
   },
 };
 

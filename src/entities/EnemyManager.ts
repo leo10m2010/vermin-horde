@@ -3,6 +3,7 @@ import { SpatialHash } from '../core/SpatialHash';
 import { LAYER_Y, POOL_CAPACITY, SPATIAL_HASH_CELL } from '../core/Constants';
 import { gameEvents } from '../core/EventBus';
 import { InstancedBillboardBatch } from '../render/InstancedBillboardBatch';
+import { ShadowBatch } from '../render/ShadowBatch';
 import { advanceAnimFrame, spriteAtlas } from '../render/SpriteAtlas';
 
 export type EnemyBehavior = (index: number, dt: number, mgr: EnemyManager, playerX: number, playerZ: number) => void;
@@ -53,6 +54,8 @@ export class EnemyManager {
   readonly capacity = POOL_CAPACITY.enemies;
   readonly pool = new IndexPool(this.capacity);
   readonly batch: InstancedBillboardBatch;
+  /** One flat ground-shadow decal per enemy slot, same index as `batch` - a single extra draw call covers up to `capacity` shadows. */
+  readonly shadowBatch: ShadowBatch;
   readonly spatialHash = new SpatialHash(SPATIAL_HASH_CELL);
 
   readonly posX = new Float32Array(this.capacity);
@@ -86,6 +89,7 @@ export class EnemyManager {
 
   constructor() {
     this.batch = new InstancedBillboardBatch(this.capacity, spriteAtlas.texture, 'enemies');
+    this.shadowBatch = new ShadowBatch(this.capacity, 'enemy-shadows');
   }
 
   registerType(def: Omit<EnemyTypeDef, 'id'>): number {
@@ -325,6 +329,7 @@ export class EnemyManager {
         spawnAlpha,
         flash,
       );
+      this.shadowBatch.set(i, this.posX[i], this.posZ[i], size * 0.36);
     }
 
     // Death-fade pass: dying enemies stopped being alive/targetable the
@@ -341,6 +346,7 @@ export class EnemyManager {
       if (this.dyingTimer[i] <= 0) {
         this.dying[i] = 0;
         this.batch.hide(i);
+        this.shadowBatch.hide(i);
         this.pool.release(i);
         continue;
       }
@@ -372,15 +378,20 @@ export class EnemyManager {
         t,
         0,
       );
+      this.shadowBatch.set(i, this.posX[i], this.posZ[i], size * 0.36 * t);
     }
 
     this.batch.commit();
+    this.shadowBatch.commit();
     return { contactDamage };
   }
 
   clear(): void {
     for (let i = 0; i < this.capacity; i++) {
-      if (this.alive[i] || this.dying[i]) this.batch.hide(i);
+      if (this.alive[i] || this.dying[i]) {
+        this.batch.hide(i);
+        this.shadowBatch.hide(i);
+      }
       this.alive[i] = 0;
       this.dying[i] = 0;
       this.dyingTimer[i] = 0;
@@ -388,9 +399,11 @@ export class EnemyManager {
     }
     this.pool.reset();
     this.batch.commit();
+    this.shadowBatch.commit();
   }
 
   dispose(): void {
     this.batch.dispose();
+    this.shadowBatch.dispose();
   }
 }

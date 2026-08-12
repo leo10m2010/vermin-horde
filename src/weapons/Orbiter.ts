@@ -35,8 +35,9 @@ export class OrbiterWeapon implements Weapon {
     this.visualId = this.visuals.get('orbiter_blade', 0.5, [1, 1, 1], true);
   }
 
+  /** Lv1:1, Lv2:2, Lv4:3, Lv6:4, Lv8:5 - every step is a blade you can count on screen. */
   private targetBladeCount(): number {
-    const base = Math.min(5, 2 + Math.floor((this.level - 1) / 2));
+    const base = Math.min(5, 1 + Math.floor(this.level / 2));
     return this.evolved ? base + 2 : base;
   }
 

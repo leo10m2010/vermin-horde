@@ -5,6 +5,9 @@ const BASE_COOLDOWN = 1.1;
 const BASE_DAMAGE = 14;
 const BASE_SPEED = 9;
 const EVOLVED_TWIN_ANGLE = (18 * Math.PI) / 180; // evolved-only: second axe thrown simultaneously, offset from the primary throw
+const EXTRA_PROJECTILE_ANGLE = (14 * Math.PI) / 180; // Amount (Ammo Satchel): extra axes fan out from the primary throw
+const ARC_DURATION = 0.55; // seconds over which the visual toss-height rises then falls
+const ARC_HEIGHT = 0.55; // world units of peak visual rise - collisions stay flat on X/Z
 
 /** Thrown in the player's current facing/movement direction (random if idle); pierces multiple enemies. */
 export class AxeWeapon implements Weapon {
@@ -19,6 +22,8 @@ export class AxeWeapon implements Weapon {
   private readonly visualId: number;
   private cooldown = 0;
   private lastFacingAngle = 0;
+  /** projectile index -> elapsed time at launch, so the visual toss arc can be computed purely from age. */
+  private readonly arcs = new Map<number, number>();
 
   constructor(visuals: VisualCache, private readonly weaponNumericId: number) {
     this.visualId = visuals.get('proj_axe', 0.6, [1, 1, 1], true);
@@ -30,6 +35,8 @@ export class AxeWeapon implements Weapon {
   }
 
   update(ctx: WeaponContext): void {
+    this.stepArcs(ctx);
+
     this.cooldown -= ctx.dt;
     if (this.cooldown > 0) return;
     // Balance: evolved no longer also gets a cooldown discount (was 0.75) -
@@ -60,16 +67,37 @@ export class AxeWeapon implements Weapon {
       // Evolved axe throws a second blade simultaneously in a fanned-out angle, a wider whirling spread instead of a single line.
       this.throwAxe(ctx, angle + EVOLVED_TWIN_ANGLE, damage, speed, pierce, life);
     }
+    // Amount (Ammo Satchel) is compatible: extra axes fan out alternately left/right of the main throw.
+    const extra = Math.max(0, Math.round(ctx.stats.extraProjectiles));
+    for (let i = 0; i < extra; i++) {
+      const side = i % 2 === 0 ? 1 : -1;
+      const step = Math.floor(i / 2) + 1;
+      this.throwAxe(ctx, angle + side * step * EXTRA_PROJECTILE_ANGLE, damage, speed, pierce, life);
+    }
   }
 
   private throwAxe(ctx: WeaponContext, angle: number, damage: number, speed: number, pierce: number, life: number): void {
-    ctx.projectiles.spawn(this.visualId, ctx.playerX, ctx.playerZ, Math.cos(angle) * speed, Math.sin(angle) * speed, {
+    const index = ctx.projectiles.spawn(this.visualId, ctx.playerX, ctx.playerZ, Math.cos(angle) * speed, Math.sin(angle) * speed, {
       damage,
       radius: 0.5,
       pierce,
       life,
       weaponId: this.weaponNumericId,
     });
+    if (index !== -1) this.arcs.set(index, ctx.elapsed);
+  }
+
+  /** Purely visual 2.5D toss: rises then falls over ARC_DURATION, then stays grounded for the rest of its flight/pierce life. */
+  private stepArcs(ctx: WeaponContext): void {
+    for (const [index, spawnedAt] of this.arcs) {
+      if (!ctx.projectiles.alive[index]) {
+        this.arcs.delete(index);
+        continue;
+      }
+      const t = Math.min(1, (ctx.elapsed - spawnedAt) / ARC_DURATION);
+      ctx.projectiles.setHeightOffset(index, Math.sin(t * Math.PI) * ARC_HEIGHT);
+      if (t >= 1) this.arcs.delete(index);
+    }
   }
 
   levelUp(): void {

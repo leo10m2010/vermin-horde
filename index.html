@@ -13,16 +13,27 @@
 
       <section id="hud" aria-live="polite">
         <div id="hud-top-left">
-          <div id="level-badge"><span id="hud-level-label">Lv</span> <span id="hud-level">1</span></div>
-          <div id="xp-bar"><div id="xp-bar-fill"></div></div>
+          <div id="hud-portrait-frame">
+            <canvas id="hud-portrait" width="72" height="72"></canvas>
+          </div>
+          <div id="hud-character-col">
+            <div id="hud-character-name">Adventurer</div>
+            <div id="health-bar">
+              <div id="health-bar-trail"></div>
+              <div id="health-bar-fill"></div>
+              <span id="health-text">100/100</span>
+            </div>
+            <div id="hud-level-row">
+              <div id="level-badge"><span id="hud-level-label">Lv</span> <span id="hud-level">1</span></div>
+              <div id="xp-bar"><div id="xp-bar-fill"></div></div>
+            </div>
+          </div>
         </div>
         <div id="hud-top-right">
           <div id="hud-timer">00:00</div>
           <div id="hud-kills"><span id="hud-kill-count">0</span> <span id="hud-kills-label">muertes</span></div>
         </div>
-        <div id="hud-bottom-left">
-          <div id="health-bar"><div id="health-bar-fill"></div><span id="health-text">100/100</span></div>
-        </div>
+        <div id="hud-power-slots"></div>
         <div id="boss-banner" hidden></div>
       </section>
 
