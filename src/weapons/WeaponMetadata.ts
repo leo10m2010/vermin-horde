@@ -17,7 +17,8 @@ export type AttackPattern =
   | 'WANDER'
   | 'GROUND_ZONE'
   | 'FAN'
-  | 'RADIAL';
+  | 'RADIAL'
+  | 'FIXED_ARC';
 
 /** One perceptible step in a weapon's 1-8 climb: reaching `level` changes something you can see, not just a hidden number. */
 export interface WeaponLevelStep {
@@ -99,9 +100,9 @@ export const WEAPON_METADATA: Record<string, WeaponMetadata> = {
     id: 'axe_throw',
     name: 'Axe',
     iconKey: 'axe_throw',
-    description: 'Hacha arrojada en un patrón giratorio propio (ángulo áureo) que cubre los 360° con el tiempo, cae en parábola y perfora varios enemigos.',
-    attackPattern: 'RADIAL',
-    directionLabel: 'Patrón giratorio propio - independiente del movimiento',
+    description: 'Hacha arrojada siempre hacia la misma dirección fija (arriba en pantalla), nunca hacia donde camina el jugador. Con más cantidad, las hachas extra se reparten en abanico simétrico alrededor de esa dirección. Cae en parábola y perfora varios enemigos.',
+    attackPattern: 'FIXED_ARC',
+    directionLabel: 'Dirección fija (arriba en pantalla) - independiente del movimiento',
     maxLevel: 8,
     evolvedName: 'Whirlwind Axe',
     evolutionRequirementName: 'Wide Reach',
@@ -116,7 +117,7 @@ export const WEAPON_METADATA: Record<string, WeaponMetadata> = {
       { level: 8, summary: 'Versión máxima', detail: '+daño y velocidad de vuelo' },
     ],
     compatibleWithExtraProjectiles: true,
-    tags: ['proyectil', 'patrón giratorio', 'perforante', 'arco visual'],
+    tags: ['proyectil', 'dirección fija', 'perforante', 'arco visual'],
   },
   fireball: {
     id: 'fireball',
@@ -191,15 +192,15 @@ export const WEAPON_METADATA: Record<string, WeaponMetadata> = {
     id: 'whip_strike',
     name: 'Whip Strike',
     iconKey: 'whip_strike',
-    description: 'Golpe cuerpo a cuerpo frontal. Al mejorar, desbloquea un segundo golpe por detrás.',
+    description: 'Golpe cuerpo a cuerpo horizontal (izquierda o derecha, según tu última dirección horizontal de movimiento). Moverte arriba/abajo no lo gira. Al mejorar, desbloquea el golpe también en el lado opuesto.',
     attackPattern: 'FRONT_BACK',
-    directionLabel: 'Frontal (nivel 2+: también por detrás)',
+    directionLabel: 'Horizontal únicamente - izquierda o derecha (nivel 2+: ambos lados)',
     maxLevel: 8,
     evolvedName: "Serpent's Coil",
     evolutionRequirementName: 'Vitality Ring',
     evolutionDescription: 'Mayor alcance y daño, y cada golpe empuja hacia atrás a los enemigos golpeados.',
     levelSteps: [
-      { level: 2, summary: 'Ataque trasero', detail: 'Ahora golpea delante Y detrás' },
+      { level: 2, summary: 'Ataque al lado opuesto', detail: 'Ahora golpea ambos lados: izquierda Y derecha' },
       { level: 3, summary: '+daño', detail: '' },
       { level: 4, summary: '+alcance', detail: '' },
       { level: 5, summary: '-cooldown', detail: '' },

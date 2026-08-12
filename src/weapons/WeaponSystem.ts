@@ -158,6 +158,11 @@ export class WeaponSystem {
     return this.owned.has(id);
   }
 
+  /** QA helper: the numeric id ProjectileManager tags this weapon's projectiles with (see `WeaponContext`/`weaponId` on spawn()), so external tooling can filter live projectiles by weapon without reaching into private state. -1 if unknown. */
+  getWeaponNumericId(id: string): number {
+    return this.numericIdById.get(id) ?? -1;
+  }
+
   isMaxed(id: string): boolean {
     const weapon = this.owned.get(id);
     return weapon ? weapon.level >= weapon.maxLevel : false;

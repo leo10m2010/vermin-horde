@@ -4,20 +4,25 @@ import { VisualCache } from './WeaponBase';
 
 const BASE_COOLDOWN = 1.0;
 const BASE_DAMAGE = 10;
-const BASE_REACH = 3.2; // half-length of the band along the facing axis, both directions
-const BASE_HALF_WIDTH = 1.15; // half-width of the band perpendicular to facing
+const BASE_REACH = 3.2; // half-length of the band along X (the horizontal facing axis), both directions
+const BASE_HALF_WIDTH = 1.15; // half-extent of the band along Z (fixed vertical thickness, never rotates)
 const SLASH_VISUAL_LIFE = 0.14;
 const EVOLVED_KNOCKBACK_DISTANCE = 0.9; // evolved-only: instant push-back applied to every enemy struck
+const HORIZONTAL_FACING_THRESHOLD = 0.6; // min |playerVX| (world units/s) before horizontalFacing updates
 
 /**
  * Melee weapon: no projectile hit-testing - directly damages every enemy
- * inside a short rectangular band along the player's current facing axis.
+ * inside a short rectangular band that is ALWAYS horizontal in world space
+ * (extends along X, fixed thickness along Z) - it only ever mirrors
+ * left/right, it never rotates to chase the player's full movement vector.
+ * `horizontalFacing` (+1 right / -1 left) is the only directional state this
+ * weapon reads, and it only updates from the player's horizontal (X) speed
+ * component - moving purely up/down (Z-only) or diagonally never touches it,
+ * so walking north with a prior rightward facing keeps striking right.
  * Progression is the whole point of this weapon's identity: Lv1 only ever
- * hits in FRONT of the player; reaching Lv2 visibly unlocks a second strike
- * BEHIND them too (mirrors real VS's whip, which swings through the
- * character once upgraded). Facing comes from current velocity; while
- * stationary the last non-zero facing is reused so the band doesn't collapse
- * to a fixed default.
+ * hits on the facing side; reaching Lv2 visibly unlocks the mirrored strike
+ * on the other side too (mirrors real VS's whip, which swings through the
+ * character once upgraded).
  */
 export class WhipStrikeWeapon implements Weapon {
   readonly id = 'whip_strike';
@@ -31,8 +36,7 @@ export class WhipStrikeWeapon implements Weapon {
 
   private readonly visualId: number;
   private cooldown = 0;
-  private facingX = 1;
-  private facingZ = 0;
+  private horizontalFacing: 1 | -1 = 1;
   private readonly hitBuffer: number[] = [];
 
   constructor(visuals: VisualCache, private readonly weaponNumericId: number) {
@@ -40,12 +44,11 @@ export class WhipStrikeWeapon implements Weapon {
   }
 
   update(ctx: WeaponContext): void {
-    const moveSpeedSq = ctx.playerVX * ctx.playerVX + ctx.playerVZ * ctx.playerVZ;
-    if (moveSpeedSq > 0.01) {
-      const invLen = 1 / Math.sqrt(moveSpeedSq);
-      this.facingX = ctx.playerVX * invLen;
-      this.facingZ = ctx.playerVZ * invLen;
-    }
+    // HORIZONTAL FACING ONLY: reads just the X component of movement, and
+    // only past a deadzone threshold. Moving purely vertically (Z) or too
+    // slowly along X leaves horizontalFacing exactly where it was.
+    if (ctx.playerVX > HORIZONTAL_FACING_THRESHOLD) this.horizontalFacing = 1;
+    else if (ctx.playerVX < -HORIZONTAL_FACING_THRESHOLD) this.horizontalFacing = -1;
 
     this.cooldown -= ctx.dt;
     if (this.cooldown > 0) return;
@@ -55,13 +58,9 @@ export class WhipStrikeWeapon implements Weapon {
     const halfWidth = (BASE_HALF_WIDTH + 0.05 * (this.level - 1)) * ctx.stats.areaMultiplier;
     const damage = (BASE_DAMAGE + 1.9 * (this.level - 1)) * (this.evolved ? 1.4 : 1) * ctx.stats.damageMultiplier;
 
-    // perpendicular axis to facing, for the band's lateral extent
-    const perpX = -this.facingZ;
-    const perpZ = this.facingX;
-
-    // Lv1 only ever strikes in front; the rear strike is a Lv2+ unlock so the
+    // Lv1 only ever strikes on the facing side; the mirrored side is a Lv2+ unlock so the
     // upgrade reads as a visible new attack, not a hidden number change.
-    const hitsBehind = this.level >= 2;
+    const hitsBothSides = this.level >= 2;
 
     const queryRadius = Math.sqrt(reach * reach + halfWidth * halfWidth);
     const count = ctx.enemies.queryRadius(ctx.playerX, ctx.playerZ, queryRadius, this.hitBuffer);
@@ -70,9 +69,12 @@ export class WhipStrikeWeapon implements Weapon {
       const enemyIndex = this.hitBuffer[i];
       const dx = ctx.enemies.posX[enemyIndex] - ctx.playerX;
       const dz = ctx.enemies.posZ[enemyIndex] - ctx.playerZ;
-      const along = dx * this.facingX + dz * this.facingZ; // signed distance along facing (front positive, behind negative)
-      const across = dx * perpX + dz * perpZ; // signed lateral offset
-      if (along < 0 && !hitsBehind) continue; // Lv1: front-only
+      // Pure horizontal band: `along` is the signed X distance relative to
+      // facing (never mixes in dz), `across` is the raw Z offset (never
+      // rotates with facing) - moving up/down/diagonally cannot tilt this.
+      const along = dx * this.horizontalFacing;
+      const across = dz;
+      if (along < 0 && !hitsBothSides) continue; // Lv1: facing-side only
       if (Math.abs(along) > reach || Math.abs(across) > halfWidth) continue;
       const crit = ctx.rng() < ctx.stats.critChance;
       const dmg = damage * (crit ? ctx.stats.critMultiplier : 1);
@@ -86,17 +88,20 @@ export class WhipStrikeWeapon implements Weapon {
       }
     }
 
-    // Decorative slash instance(s): front always, rear only once Lv2+ unlocks
-    // it - so the visual swing matches exactly what can and can't be hit.
-    ctx.projectiles.spawn(this.visualId, ctx.playerX + this.facingX * reach * 0.5, ctx.playerZ + this.facingZ * reach * 0.5, 0, 0, {
+    // Decorative slash instance(s), both purely horizontal offsets from the
+    // player (Z untouched): facing side always, mirrored side only once
+    // Lv2+ unlocks it - so the visual swing matches exactly what can and
+    // can't be hit, and explicitly represents the two distinct hit zones
+    // instead of implying one continuous band.
+    ctx.projectiles.spawn(this.visualId, ctx.playerX + this.horizontalFacing * reach * 0.5, ctx.playerZ, 0, 0, {
       damage: 0,
       radius: 0,
       pierce: 0,
       life: SLASH_VISUAL_LIFE,
       weaponId: this.weaponNumericId,
     });
-    if (hitsBehind) {
-      ctx.projectiles.spawn(this.visualId, ctx.playerX - this.facingX * reach * 0.5, ctx.playerZ - this.facingZ * reach * 0.5, 0, 0, {
+    if (hitsBothSides) {
+      ctx.projectiles.spawn(this.visualId, ctx.playerX - this.horizontalFacing * reach * 0.5, ctx.playerZ, 0, 0, {
         damage: 0,
         radius: 0,
         pierce: 0,

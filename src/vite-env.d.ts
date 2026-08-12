@@ -50,6 +50,12 @@ interface ThreeGameTestHooks {
   spawnEnemies(count: number, typeName?: string): void;
   /** QA helper: remove every active enemy. */
   clearEnemies(): void;
+  /** QA helper: spawn one enemy at an exact (playerX+dx, playerZ+dz) offset; returns its pool index (-1 if the pool is full). */
+  spawnEnemyAt(dx: number, dz: number, typeName?: string): number;
+  /** QA helper: read back an enemy's current state by pool index (as returned by spawnEnemyAt). */
+  getEnemyHp(index: number): { hp: number; maxHp: number; alive: boolean };
+  /** QA helper: velocity vectors of every live projectile currently belonging to the given weapon id - lets a test assert a launch angle directly. */
+  getProjectileVelocities(weaponId: string): Array<{ vx: number; vz: number }>;
   /** QA helper: grant enough XP to trigger N level-ups immediately. */
   grantLevels(count: number): void;
   /** QA helper: toggle invulnerability so bot playtests can survive long stress runs. */

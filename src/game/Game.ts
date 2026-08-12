@@ -782,6 +782,27 @@ export class Game {
         }
       },
       clearEnemies: () => this.enemies.clear(),
+      // QA helper: spawn one enemy at an exact (playerX + dx, playerZ + dz)
+      // offset, for tests that need precise placement (e.g. "one enemy
+      // directly north of the player") instead of spawnEnemies' random ring.
+      spawnEnemyAt: (dx: number, dz: number, typeName?: keyof EnemyTypeIds) => {
+        const typeId = typeName && typeName in this.enemyTypes ? this.enemyTypes[typeName] : this.enemyTypes.grunt;
+        return this.enemies.spawn(typeId, this.player.position.x + dx, this.player.position.z + dz);
+      },
+      // QA helper: read back an enemy's current/max HP by pool index (as returned by spawnEnemyAt) to verify a specific enemy actually took (or didn't take) damage.
+      getEnemyHp: (index: number) => ({ hp: this.enemies.hp[index] ?? -1, maxHp: this.enemies.maxHp[index] ?? -1, alive: this.enemies.alive[index] === 1 }),
+      // QA helper: current velocity vectors of every live projectile belonging to a given weapon id, so a test can assert a weapon's launch angle directly instead of inferring it from enemy damage/position.
+      getProjectileVelocities: (weaponId: string) => {
+        const numericId = this.weaponSystem.getWeaponNumericId(weaponId);
+        const out: Array<{ vx: number; vz: number }> = [];
+        if (numericId === -1) return out;
+        for (let i = 0; i < this.projectiles.capacity; i++) {
+          if (this.projectiles.alive[i] && this.projectiles.weaponId[i] === numericId) {
+            out.push({ vx: this.projectiles.velX[i], vz: this.projectiles.velZ[i] });
+          }
+        }
+        return out;
+      },
       grantLevels: (count: number) => {
         for (let i = 0; i < count; i++) {
           const levels = this.state.gainXp(this.state.run.xpToNext);
