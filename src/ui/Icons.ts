@@ -166,3 +166,31 @@ export function getUpgradeIconDataUrl(id: string): string {
   cache.set(id, url);
   return url;
 }
+
+let settingsIconUrl: string | null = null;
+
+/** Data-URL for the settings-gear icon (main menu language toggle). Chunky pixel blocks, same procedural style as every other icon here - no emoji, no external art. */
+export function getSettingsIconDataUrl(): string {
+  if (settingsIconUrl) return settingsIconUrl;
+  const { canvas, ctx } = newCanvas();
+  const gold = '#c9a227';
+  const dark = '#3a2a1c';
+  // 8 teeth around a ring, plus a hollow center bolt-hole - reads as a gear at a glance.
+  circle(ctx, 14, 14, 11, gold);
+  circle(ctx, 14, 14, 7.5, dark);
+  circle(ctx, 14, 14, 3, gold);
+  const teeth: Array<[number, number, number, number]> = [
+    [11, 0, 6, 4], // top
+    [11, 24, 6, 4], // bottom
+    [0, 11, 4, 6], // left
+    [24, 11, 4, 6], // right
+    [3, 3, 5, 5], // top-left
+    [20, 3, 5, 5], // top-right
+    [3, 20, 5, 5], // bottom-left
+    [20, 20, 5, 5], // bottom-right
+  ];
+  for (const [x, y, w, h] of teeth) px(ctx, x, y, w, h, gold);
+  const url = canvas.toDataURL();
+  settingsIconUrl = url;
+  return url;
+}

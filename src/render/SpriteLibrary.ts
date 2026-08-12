@@ -75,6 +75,17 @@ export function registerPlayerSprites(): void {
     { key: 'player_hit_1', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(hitB), PLAYER_PALETTE) },
   ]);
 
+  // attack flourish - brief wind-up / overhead-raise / forward-thrust arc played whenever
+  // a weapon fires, so attacks read as a deliberate action distinct from walk/idle.
+  const castA = playerCastGrid(0);
+  const castB = playerCastGrid(1);
+  const castC = playerCastGrid(2);
+  spriteAtlas.registerClip('player_cast', 16, false, [
+    { key: 'player_cast_0', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(castA), PLAYER_PALETTE) },
+    { key: 'player_cast_1', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(castB), PLAYER_PALETTE) },
+    { key: 'player_cast_2', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(castC), PLAYER_PALETTE) },
+  ]);
+
   // collapsing sequence - progressively lower/wider silhouette as the character folds down.
   const deathFrames = [0, 1, 2, 3].map((stage) => playerDeathGrid(stage));
   spriteAtlas.registerClip(
@@ -106,6 +117,41 @@ function playerHitGrid(settled: boolean): string[][] {
   fillRect(g, 9, 11, 11, 16, 'p');
   fillRect(g, 5, 16, 8, 17, 'o');
   fillRect(g, 9, 16, 12, 17, 'o');
+  return colorize(g);
+}
+
+/**
+ * Attack flourish pose. stage 0 = wind-up (arm cocked at shoulder height),
+ * stage 1 = peak (arm raised straight overhead with a small accent glint),
+ * stage 2 = release (torso leans forward, arm swings out into a thrust).
+ * Legs stay planted (no stride) since this plays as a quick overlay on top
+ * of whatever movement state the player is already in.
+ */
+function playerCastGrid(stage: number): string[][] {
+  const g = makeGrid(GW, GH);
+  const lean = stage === 2 ? 1 : 0;
+  // hood/head - tips forward slightly on the release frame
+  fillRect(g, 6 + lean, 1, 9 + lean, 4, 'h');
+  fillRect(g, 7 + lean, 2, 8 + lean, 3, 'e');
+  // torso
+  fillRect(g, 5 + lean, 5, 10 + lean, 11, 'b');
+  fillRect(g, 6 + lean, 6, 9 + lean, 8, 'a');
+  // off-hand braced at the hip
+  fillRect(g, 3, 8, 4, 10, 'b');
+  // cast arm: cocked back -> raised overhead -> thrust forward
+  if (stage === 0) {
+    fillRect(g, 11, 5, 13, 7, 'b');
+  } else if (stage === 1) {
+    fillRect(g, 11, 0, 12, 6, 'b');
+    fillRect(g, 12, 0, 13, 0, 'a'); // glint at the raised hand/weapon tip
+  } else {
+    fillRect(g, 12, 5, 15, 7, 'b');
+  }
+  // legs - short braced stance, no stride during the flourish
+  fillRect(g, 6, 12, 7, 16, 'p');
+  fillRect(g, 8, 12, 9, 16, 'p');
+  fillRect(g, 5, 16, 7, 17, 'o');
+  fillRect(g, 8, 16, 10, 17, 'o');
   return colorize(g);
 }
 
@@ -166,6 +212,27 @@ export function registerPickupSprites(): void {
   const palette = { g: '#59e0ff', d: '#1d7fbf' };
   spriteAtlas.registerClip('gem_basic', 1, true, [
     { key: 'gem_basic_0', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(gemGrid), palette) },
+  ]);
+
+  // Gilded Cache - a rare elite/boss drop, deliberately chest-shaped (not
+  // just a bigger gem) so it reads as a distinct pickup type at a glance.
+  const chestClosed = makeGrid(12, 12);
+  fillRect(chestClosed, 1, 4, 10, 10, 'w'); // base
+  fillRect(chestClosed, 1, 4, 10, 4, 'b'); // band under lid
+  fillRect(chestClosed, 1, 1, 10, 3, 'l'); // lid
+  fillRect(chestClosed, 1, 1, 10, 1, 'b'); // lid trim top
+  fillRect(chestClosed, 5, 3, 6, 5, 'k'); // lock
+  const chestGlowGrid = makeGrid(12, 12);
+  fillRect(chestGlowGrid, 1, 4, 10, 10, 'w');
+  fillRect(chestGlowGrid, 1, 4, 10, 4, 'b');
+  fillRect(chestGlowGrid, 1, 1, 10, 3, 'l');
+  fillRect(chestGlowGrid, 1, 1, 10, 1, 'b');
+  fillRect(chestGlowGrid, 5, 3, 6, 5, 'k');
+  fillRect(chestGlowGrid, 4, 2, 7, 2, 'e'); // sparkle line across the lid
+  const chestPalette = { w: '#7a4a1f', b: '#c9a227', l: '#9a6a2f', k: '#3a2410', e: '#fff2b0' };
+  spriteAtlas.registerClip('treasure_cache', 2.2, true, [
+    { key: 'treasure_cache_0', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(chestClosed), chestPalette) },
+    { key: 'treasure_cache_1', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(chestGlowGrid), chestPalette) },
   ]);
 }
 
@@ -262,14 +329,22 @@ const SLIME_PALETTE: Record<string, string> = {
   h: 'rgba(180,255,220,0.9)',
 };
 
-function slimeGrid(squash: boolean): string[][] {
+// phase 0 = tall rest pose, phase 1 = halfway into the squash, phase 2 = full squash.
+function slimeGrid(phase: 0 | 1 | 2): string[][] {
   const g = makeGrid(16, 12);
-  if (!squash) {
+  if (phase === 0) {
     fillRect(g, 5, 2, 10, 3, 'g');
     fillRect(g, 3, 4, 12, 7, 'g');
     fillRect(g, 2, 8, 13, 9, 'g');
     fillRect(g, 4, 10, 11, 10, 'g');
     fillRect(g, 5, 3, 7, 4, 'h');
+  } else if (phase === 1) {
+    // in-between: halfway (rounded) between the tall rest pose and the full squash below
+    fillRect(g, 4, 3, 11, 4, 'g');
+    fillRect(g, 2, 5, 13, 7, 'g');
+    fillRect(g, 1, 8, 14, 9, 'g');
+    fillRect(g, 3, 10, 12, 10, 'g');
+    fillRect(g, 4, 4, 6, 5, 'h');
   } else {
     fillRect(g, 3, 5, 12, 6, 'g');
     fillRect(g, 1, 7, 14, 8, 'g');
@@ -281,11 +356,17 @@ function slimeGrid(squash: boolean): string[][] {
 }
 
 export function registerSlimeSprites(): void {
-  const a = slimeGrid(false);
-  const b = slimeGrid(true);
-  spriteAtlas.registerClip('enemy_slime_walk', 4, true, [
+  // squash-stretch now passes through a halfway pose (0 -> 1 -> 2 -> 1) instead of
+  // flipping directly between tall and squashed; fps doubled to keep the same
+  // real-world bounce speed with the added in-between frames.
+  const a = slimeGrid(0);
+  const mid = slimeGrid(1);
+  const b = slimeGrid(2);
+  spriteAtlas.registerClip('enemy_slime_walk', 8, true, [
     { key: 'slime_0', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(a), SLIME_PALETTE) },
+    { key: 'slime_mid', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(mid), SLIME_PALETTE) },
     { key: 'slime_1', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(b), SLIME_PALETTE) },
+    { key: 'slime_mid_b', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(mid), SLIME_PALETTE) },
   ]);
 }
 
@@ -349,11 +430,17 @@ function ghostGrid(wispShift: number): string[][] {
 }
 
 export function registerGhostSprites(): void {
+  // 0 -> 1 -> 2 -> 1 ping-pongs the wisp sway through a middle extreme instead of
+  // flipping between just two poses, and fps is doubled alongside the frame count
+  // so the sway completes in the same real-world time as before, just smoother.
   const a = ghostGrid(0);
   const b = ghostGrid(1);
-  spriteAtlas.registerClip('enemy_ghost_walk', 3, true, [
+  const c = ghostGrid(2);
+  spriteAtlas.registerClip('enemy_ghost_walk', 6, true, [
     { key: 'ghost_0', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(a), GHOST_PALETTE) },
     { key: 'ghost_1', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(b), GHOST_PALETTE) },
+    { key: 'ghost_2', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(c), GHOST_PALETTE) },
+    { key: 'ghost_1b', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(b), GHOST_PALETTE) },
   ]);
 }
 
@@ -386,11 +473,17 @@ function bigBruteGrid(legOffset: number): string[][] {
 }
 
 export function registerBruteSprites(): void {
+  // stride now passes through a neutral mid-stance (1 -> 0 -> -1 -> 0) instead of
+  // flipping directly between the two extremes; fps doubled to keep the same
+  // real-world stride speed with the added in-between frames.
   const a = bigBruteGrid(1);
+  const mid = bigBruteGrid(0);
   const b = bigBruteGrid(-1);
-  spriteAtlas.registerClip('enemy_brute_walk', 5, true, [
+  spriteAtlas.registerClip('enemy_brute_walk', 10, true, [
     { key: 'bigbrute_0', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(a), BIG_BRUTE_PALETTE) },
+    { key: 'bigbrute_mid', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(mid), BIG_BRUTE_PALETTE) },
     { key: 'bigbrute_1', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(b), BIG_BRUTE_PALETTE) },
+    { key: 'bigbrute_mid_b', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(mid), BIG_BRUTE_PALETTE) },
   ]);
 }
 
@@ -427,6 +520,120 @@ export function registerSpitterSprites(): void {
   ]);
 }
 
+// ---------------------------------------------------------------------------
+// Ghoul - charger/dasher. Twin amethyst-crystal heads on thin stalks over a
+// tattered robe; no visible legs (it shambles/glides between dashes), so its
+// "walk" is a gentle counter-sway of the two heads and the hem rather than a
+// leg stride.
+// ---------------------------------------------------------------------------
+const GHOUL_PALETTE: Record<string, string> = {
+  c: '#c9a6f0', // crystal light
+  h: '#e8d4ff', // crystal highlight
+  d: '#8a5fc4', // crystal shadow/underside
+  n: '#8a7248', // stalk / robe shoulder accent
+  r: '#6b5a3a', // robe main
+  s: '#4a3d28', // robe shade
+  m: '#5a2f2a', // robe lower shade (darker, warmer - matches the hem gradient)
+  o: '#1a1410', // ground shadow
+};
+
+function ghoulGrid(sway: number): string[][] {
+  const g = makeGrid(16, 20);
+  const ls = sway; // left crystal/stalk sways opposite the right one
+  const rs = -sway;
+
+  // left crystal head: teardrop gem + small secondary bead, on a thin neck
+  fillRect(g, 3 + ls, 1, 6 + ls, 2, 'c');
+  fillRect(g, 4 + ls, 0, 5 + ls, 0, 'h');
+  fillRect(g, 3 + ls, 3, 6 + ls, 3, 'c');
+  fillRect(g, 5 + ls, 3, 6 + ls, 3, 'd');
+  fillRect(g, 4 + ls, 4, 5 + ls, 4, 'c');
+  fillRect(g, 4, 5, 5, 7, 'n');
+
+  // right crystal head: mirrored
+  fillRect(g, 9 + rs, 1, 12 + rs, 2, 'c');
+  fillRect(g, 10 + rs, 0, 11 + rs, 0, 'h');
+  fillRect(g, 9 + rs, 3, 12 + rs, 3, 'c');
+  fillRect(g, 11 + rs, 3, 12 + rs, 3, 'd');
+  fillRect(g, 10 + rs, 4, 11 + rs, 4, 'c');
+  fillRect(g, 10, 5, 11, 7, 'n');
+
+  // robe: narrow at the shoulders, widening toward a swaying hem
+  fillRect(g, 4, 7, 11, 9, 'n');
+  fillRect(g, 3, 9, 12, 13, 'r');
+  fillRect(g, 5, 10, 10, 12, 's');
+  fillRect(g, 2, 13, 13, 17, 'r');
+  fillRect(g, 3, 14, 12, 16, 'm');
+  fillRect(g, 1 + sway, 17, 14 + sway, 18, 'r');
+  fillRect(g, 2 + sway, 18, 13 + sway, 18, 'o');
+  return g;
+}
+
+export function registerGhoulSprites(): void {
+  const a = ghoulGrid(0);
+  const b = ghoulGrid(1);
+  spriteAtlas.registerClip('enemy_ghoul_walk', 3, true, [
+    { key: 'ghoul_0', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(a), GHOUL_PALETTE) },
+    { key: 'ghoul_1', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(b), GHOUL_PALETTE) },
+  ]);
+}
+
+// ---------------------------------------------------------------------------
+// Gargoyle - stationary turret. Squat stone statue, wings spread wide for a
+// low silhouette, clawed feet planted apart. Barely moves in play, so its
+// two-frame "idle" is a violet eye-glow pulse instead of a stride.
+// ---------------------------------------------------------------------------
+const GARGOYLE_PALETTE: Record<string, string> = {
+  t: '#8a8a92', // stone base
+  d: '#4f4f58', // stone shade
+  l: '#a8a8b2', // stone highlight
+  w: '#5a4a68', // wing membrane
+  k: '#2a2a30', // horns / claws
+  e: '#8a5fc4', // eye glow (dim)
+};
+
+function gargoyleGrid(eyeBright: boolean): string[][] {
+  const g = makeGrid(18, 16);
+  // horns
+  fillRect(g, 7, 0, 7, 1, 'k');
+  fillRect(g, 10, 0, 10, 1, 'k');
+  // head
+  fillRect(g, 6, 1, 11, 5, 't');
+  fillRect(g, 6, 4, 7, 5, 'd');
+  fillRect(g, 10, 4, 11, 5, 'd');
+  fillRect(g, 7, 3, 8, 3, eyeBright ? 'l' : 'e');
+  fillRect(g, 9, 3, 10, 3, eyeBright ? 'l' : 'e');
+  // wings spread wide and low, angular bat-membrane shapes
+  fillRect(g, 0, 5, 5, 6, 'w');
+  fillRect(g, 0, 7, 4, 8, 'w');
+  fillRect(g, 1, 9, 3, 9, 'w');
+  fillRect(g, 12, 5, 17, 6, 'w');
+  fillRect(g, 13, 7, 17, 8, 'w');
+  fillRect(g, 14, 9, 16, 9, 'w');
+  // torso, wide and blocky
+  fillRect(g, 5, 6, 12, 12, 't');
+  fillRect(g, 6, 7, 11, 9, 'l');
+  fillRect(g, 5, 10, 6, 12, 'd');
+  fillRect(g, 11, 10, 12, 12, 'd');
+  // feet planted wide with small claw notches
+  fillRect(g, 4, 13, 7, 15, 't');
+  fillRect(g, 10, 13, 13, 15, 't');
+  fillRect(g, 4, 15, 5, 15, 'k');
+  fillRect(g, 6, 15, 7, 15, 'k');
+  fillRect(g, 10, 15, 11, 15, 'k');
+  fillRect(g, 12, 15, 13, 15, 'k');
+  return g;
+}
+
+export function registerGargoyleSprites(): void {
+  const a = gargoyleGrid(false);
+  const b = gargoyleGrid(true);
+  spriteAtlas.registerClip('enemy_gargoyle_walk', 1.4, true, [
+    { key: 'gargoyle_0', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(a), GARGOYLE_PALETTE) },
+    { key: 'gargoyle_1', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(b), GARGOYLE_PALETTE) },
+  ]);
+}
+
 export function registerEnemyVarietySprites(): void {
   registerBatSprites();
   registerSkeletonSprites();
@@ -435,6 +642,8 @@ export function registerEnemyVarietySprites(): void {
   registerGhostSprites();
   registerBruteSprites();
   registerSpitterSprites();
+  registerGhoulSprites();
+  registerGargoyleSprites();
 }
 
 // ---------------------------------------------------------------------------
@@ -500,17 +709,84 @@ function bonecolossusGrid(legOffset: number): string[][] {
 }
 
 export function registerBoneColossusSprites(): void {
+  // ponderous stomp now swings through a neutral mid-stance (1 -> 0 -> -1 -> 0)
+  // instead of flipping directly between the two extremes; fps doubled so the
+  // stomp lands at the same real-world cadence with the extra in-between frames.
   const a = bonecolossusGrid(1);
+  const mid = bonecolossusGrid(0);
   const b = bonecolossusGrid(-1);
-  spriteAtlas.registerClip('boss_bonecolossus_walk', 3, true, [
+  spriteAtlas.registerClip('boss_bonecolossus_walk', 6, true, [
     { key: 'bonecolossus_0', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(a), BONECOLOSSUS_PALETTE) },
+    { key: 'bonecolossus_mid', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(mid), BONECOLOSSUS_PALETTE) },
     { key: 'bonecolossus_1', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(b), BONECOLOSSUS_PALETTE) },
+    { key: 'bonecolossus_mid_b', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(mid), BONECOLOSSUS_PALETTE) },
+  ]);
+}
+
+// ---------------------------------------------------------------------------
+// Duskfang - fast, low-slung spectral hound boss. Distinct silhouette from
+// Rot King/Bone Colossus (both tall bipedal brutes): quadruped stance, wide
+// and low, smaller footprint, jagged spine spikes, glowing cyan eyes over
+// near-black violet fur - reads as a quick predator, not a lumbering giant.
+// ---------------------------------------------------------------------------
+const DUSKFANG_PALETTE: Record<string, string> = {
+  f: '#241a30',
+  d: '#140e1c',
+  s: '#4a3868',
+  e: '#7ef7ff',
+  c: '#d8ffff',
+};
+
+function duskfangGrid(legOffset: number): string[][] {
+  const g = makeGrid(24, 20);
+  const lo = legOffset;
+
+  // tail, thin and trailing low behind the haunches
+  fillRect(g, 0, 11, 2, 12, 'd');
+  fillRect(g, 2, 10, 5, 11, 'f');
+
+  // haunches - raised rear end
+  fillRect(g, 4, 6, 10, 11, 'f');
+  fillRect(g, 5, 7, 9, 8, 'd');
+
+  // jagged spine spikes
+  fillRect(g, 8, 2, 9, 5, 's');
+  fillRect(g, 11, 1, 12, 5, 's');
+  fillRect(g, 13, 1, 14, 5, 's');
+  fillRect(g, 16, 2, 17, 5, 's');
+
+  // torso, low and wide
+  fillRect(g, 6, 7, 19, 13, 'f');
+  fillRect(g, 7, 9, 18, 10, 'd');
+
+  // head, forward and low-slung, jaw jutting out
+  fillRect(g, 17, 5, 23, 10, 'f');
+  fillRect(g, 21, 7, 23, 9, 'd'); // snout shade
+  fillRect(g, 19, 7, 20, 7, 'e'); // eye glow
+  fillRect(g, 20, 7, 20, 7, 'c'); // eye highlight/catch-light
+
+  // legs - diagonal trot, front-right and rear-left share phase
+  fillRect(g, 16, 14, 18, 18 + lo, 'f');
+  fillRect(g, 19, 14, 21, 18 - lo, 'f');
+  fillRect(g, 5, 14, 7, 18 - lo, 'f');
+  fillRect(g, 8, 14, 10, 18 + lo, 'f');
+
+  return g;
+}
+
+export function registerDuskfangSprites(): void {
+  const a = duskfangGrid(1);
+  const b = duskfangGrid(-1);
+  spriteAtlas.registerClip('boss_duskfang_walk', 8, true, [
+    { key: 'duskfang_0', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(a), DUSKFANG_PALETTE) },
+    { key: 'duskfang_1', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(b), DUSKFANG_PALETTE) },
   ]);
 }
 
 export function registerBossSprites(): void {
   registerRotKingSprites();
   registerBoneColossusSprites();
+  registerDuskfangSprites();
 }
 
 // ---------------------------------------------------------------------------
@@ -576,48 +852,52 @@ export function registerWeaponSprites(): void {
     { key: 'orbiter_blade_1', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(orbiterGrid), orbiterPaletteB) },
   ]);
 
-  // translucent gold/white ring/halo
+  // translucent gold/white ring/halo - pixel-art stepped band instead of a
+  // smooth canvas arc()/stroke(), so it reads as chunky retro pixel art
+  // like everything else on screen instead of a modern vector-UI ring
+  // floating over it. Built the same way gemGrid/slimeGrid/batGrid fake
+  // roundness elsewhere in this file: per-row horizontal spans computed
+  // from the ring's inner/outer radii rather than an anti-aliased curve.
+  const RING_GRID = 16;
+  const paintRing = (g: string[][], outerR: number, innerR: number, ch: string): void => {
+    const c = (RING_GRID - 1) / 2;
+    for (let y = 0; y < RING_GRID; y++) {
+      const dy = y - c;
+      if (Math.abs(dy) > outerR) continue;
+      const outerHalf = Math.sqrt(Math.max(0, outerR * outerR - dy * dy));
+      const xOuterL = Math.round(c - outerHalf);
+      const xOuterR = Math.round(c + outerHalf);
+      if (Math.abs(dy) < innerR) {
+        // Row crosses the hollow center: fill the two side spans only.
+        const innerHalf = Math.sqrt(Math.max(0, innerR * innerR - dy * dy));
+        const xInnerL = Math.round(c - innerHalf);
+        const xInnerR = Math.round(c + innerHalf);
+        fillRect(g, xOuterL, y, xInnerL - 1, y, ch);
+        fillRect(g, xInnerR + 1, y, xOuterR, y, ch);
+      } else {
+        // Row is above/below the hole entirely: solid cap of the band.
+        fillRect(g, xOuterL, y, xOuterR, y, ch);
+      }
+    }
+  };
+  // Frame A: dim/smaller pulse-low. Frame B: bright/bigger pulse-high -
+  // same idea as the original two alternating alpha/radius frames, just
+  // rasterized instead of stroked so the pulse still reads as a beat, not
+  // just a smoothness difference.
+  const ringGridA = makeGrid(RING_GRID, RING_GRID);
+  paintRing(ringGridA, 7.0, 5.0, 'g');
+  paintRing(ringGridA, 6.3, 5.5, 'w');
+  const ringGridB = makeGrid(RING_GRID, RING_GRID);
+  paintRing(ringGridB, 7.4, 5.2, 'g');
+  paintRing(ringGridB, 6.6, 5.7, 'w');
+  // Alpha kept in the palette (not the pixel shape) so the band still
+  // glows translucently against the ground, matching the original's
+  // "translucent gold/white halo" intent while staying blocky/stepped.
+  const ringPaletteA = { g: 'rgba(255,233,168,0.45)', w: 'rgba(255,246,216,0.8)' };
+  const ringPaletteB = { g: 'rgba(255,233,168,0.6)', w: 'rgba(255,246,216,0.95)' };
   spriteAtlas.registerClip('aoe_ring_holy', 3, true, [
-    {
-      key: 'aoe_ring_holy_0',
-      draw: (ctx, size) => {
-        ctx.save();
-        ctx.translate(size / 2, size / 2);
-        ctx.globalAlpha = 0.5;
-        ctx.strokeStyle = '#ffe9a8';
-        ctx.lineWidth = size * 0.12;
-        ctx.beginPath();
-        ctx.arc(0, 0, size * 0.36, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.globalAlpha = 0.85;
-        ctx.strokeStyle = '#fff6d8';
-        ctx.lineWidth = size * 0.04;
-        ctx.beginPath();
-        ctx.arc(0, 0, size * 0.36, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.restore();
-      },
-    },
-    {
-      key: 'aoe_ring_holy_1',
-      draw: (ctx, size) => {
-        ctx.save();
-        ctx.translate(size / 2, size / 2);
-        ctx.globalAlpha = 0.35;
-        ctx.strokeStyle = '#ffe9a8';
-        ctx.lineWidth = size * 0.15;
-        ctx.beginPath();
-        ctx.arc(0, 0, size * 0.4, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.globalAlpha = 0.7;
-        ctx.strokeStyle = '#fff6d8';
-        ctx.lineWidth = size * 0.04;
-        ctx.beginPath();
-        ctx.arc(0, 0, size * 0.4, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.restore();
-      },
-    },
+    { key: 'aoe_ring_holy_0', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(ringGridA), ringPaletteA) },
+    { key: 'aoe_ring_holy_1', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(ringGridB), ringPaletteB) },
   ]);
 }
 
@@ -697,6 +977,195 @@ export function registerVfxSprites(): void {
   ]);
 }
 
+// ---------------------------------------------------------------------------
+// Stage decor - static, non-interactive pixel-art scenery scattered across
+// the ground per stage (see StageDecor.ts). Each stage's ground palette
+// (Stages.ts) only swaps 3 flat colors, so these props exist purely to make
+// each stage read as its own place beyond a color tint. Kept small/simple
+// (background texture, not focal points) with 2-3 variants per theme for
+// visual variety, and colored to contrast clearly against each stage's
+// ground tones rather than blend into them.
+// ---------------------------------------------------------------------------
+
+// Graveyard - weathered stone tombstones. Light stone grey with a darker
+// shade side and a faint moss accent reads clearly against the graveyard's
+// cool blue-grey ground (#232a35).
+const TOMBSTONE_PALETTE: Record<string, string> = {
+  s: '#9aa0ab',
+  d: '#5f6570',
+  c: '#333944',
+  m: '#5a7a5a',
+};
+
+function tombstoneArchGrid(): string[][] {
+  const g = makeGrid(10, 14);
+  fillRect(g, 3, 0, 6, 1, 's');
+  fillRect(g, 2, 1, 7, 3, 's');
+  fillRect(g, 2, 3, 7, 10, 's');
+  fillRect(g, 2, 3, 3, 10, 'd');
+  fillRect(g, 5, 5, 5, 8, 'c');
+  fillRect(g, 2, 9, 4, 10, 'm');
+  fillRect(g, 1, 10, 8, 12, 'd');
+  return g;
+}
+
+function tombstoneCrossGrid(): string[][] {
+  const g = makeGrid(10, 16);
+  fillRect(g, 4, 1, 5, 12, 's');
+  fillRect(g, 1, 4, 8, 5, 's');
+  fillRect(g, 4, 1, 4, 12, 'd');
+  fillRect(g, 1, 4, 8, 4, 'd');
+  fillRect(g, 2, 12, 7, 14, 'd');
+  fillRect(g, 3, 13, 4, 13, 'm');
+  return g;
+}
+
+function tombstoneCrackedGrid(): string[][] {
+  const g = makeGrid(10, 12);
+  fillRect(g, 2, 1, 3, 1, 's');
+  fillRect(g, 5, 0, 6, 0, 's');
+  fillRect(g, 2, 2, 7, 8, 's');
+  fillRect(g, 2, 2, 3, 8, 'd');
+  fillRect(g, 5, 2, 5, 5, 'c');
+  fillRect(g, 6, 5, 6, 8, 'c');
+  fillRect(g, 1, 8, 8, 10, 'd');
+  fillRect(g, 6, 8, 8, 9, 'm');
+  return g;
+}
+
+// Cursed forest - gnarled, twisted trees. Dark violet-brown trunk against
+// the forest's dark green ground (#1c2417), with sickly yellow-green moss
+// clumps for texture that don't just blend into the canopy-dark palette.
+const TWISTED_TREE_PALETTE: Record<string, string> = {
+  t: '#241a30',
+  k: '#150f1c',
+  b: '#3a2a1c',
+  m: '#5a7a3a',
+  h: '#7a9a3a',
+};
+
+function twistedTreeGrid(lean: number): string[][] {
+  const g = makeGrid(14, 18);
+  // trunk, slightly leaning/twisted partway up
+  fillRect(g, 6, 10, 8, 17, 't');
+  fillRect(g, 6 + lean, 6, 7 + lean, 10, 't');
+  fillRect(g, 6, 10, 6, 17, 'k');
+  // gnarled branches reaching out asymmetrically
+  fillRect(g, 2, 6, 6, 7, 'b');
+  fillRect(g, 1, 4, 3, 5, 'b');
+  fillRect(g, 8 + lean, 4, 12 + lean, 5, 'b');
+  fillRect(g, 10 + lean, 2, 12 + lean, 3, 'b');
+  fillRect(g, 5 + lean, 2, 6 + lean, 6, 'b');
+  // sickly moss clumps
+  fillRect(g, 2, 5, 4, 6, 'm');
+  fillRect(g, 9 + lean, 3, 11 + lean, 4, 'h');
+  fillRect(g, 5 + lean, 1, 7 + lean, 2, 'm');
+  return g;
+}
+
+function deadStumpGrid(): string[][] {
+  const g = makeGrid(12, 10);
+  fillRect(g, 3, 3, 8, 9, 't');
+  fillRect(g, 3, 3, 4, 9, 'k');
+  fillRect(g, 2, 1, 5, 3, 'b');
+  fillRect(g, 7, 0, 10, 2, 'b');
+  fillRect(g, 5, 2, 6, 3, 'b');
+  fillRect(g, 4, 8, 6, 9, 'm');
+  return g;
+}
+
+// Ruined library - leaning bookshelves and toppled tome/scroll piles. Faded
+// jewel-tone spines (red/teal/gold) read clearly against the library's warm
+// brown ground (#3a2a1c).
+const LIBRARY_PALETTE: Record<string, string> = {
+  w: '#5c3d22',
+  d: '#2c1c0f',
+  r: '#8a2f2f',
+  u: '#2f5a6b',
+  y: '#a8862f',
+  p: '#c9b789',
+};
+
+function bookshelfGrid(tall: boolean): string[][] {
+  const h = tall ? 18 : 14;
+  const g = makeGrid(12, h);
+  fillRect(g, 0, 0, 11, 1, 'w');
+  fillRect(g, 0, 0, 1, h - 1, 'w');
+  fillRect(g, 10, 0, 11, h - 1, 'w');
+  fillRect(g, 0, h - 2, 11, h - 1, 'd');
+  const rows = tall ? 3 : 2;
+  for (let r = 0; r < rows; r++) {
+    const y0 = 2 + r * 5;
+    const y1 = y0 + 3;
+    fillRect(g, 2, y0, 9, y1, r % 2 === 0 ? 'r' : 'u');
+    fillRect(g, 2, y0, 2, y1, 'y');
+    fillRect(g, 5, y0, 5, y1, 'p');
+    fillRect(g, 8, y0, 8, y1, 'y');
+    fillRect(g, 2, y1 + 1, 9, y1 + 1, 'd');
+  }
+  return g;
+}
+
+function scrollPileGrid(): string[][] {
+  const g = makeGrid(14, 8);
+  fillRect(g, 1, 5, 12, 7, 'r');
+  fillRect(g, 1, 5, 12, 5, 'd');
+  fillRect(g, 2, 3, 10, 5, 'u');
+  fillRect(g, 2, 3, 10, 3, 'd');
+  fillRect(g, 4, 1, 9, 3, 'p');
+  fillRect(g, 3, 2, 4, 2, 'y');
+  fillRect(g, 9, 2, 10, 2, 'y');
+  return g;
+}
+
+/**
+ * Static decor props for each of the 3 stages (see `src/game/Stages.ts`).
+ * Clip names follow `decor_<stageTheme>_<propKind>_<variant>` so StageDecor
+ * can look them up per `StageDef.id`. Single-frame clips (fps/loop values
+ * are irrelevant since nothing ever advances them) - these props never move
+ * or animate, matching StageDecor's "populate once, no update()" contract.
+ */
+export function registerDecorSprites(): void {
+  const tombstoneA = tombstoneArchGrid();
+  const tombstoneB = tombstoneCrossGrid();
+  const tombstoneC = tombstoneCrackedGrid();
+  spriteAtlas.registerClip('decor_graveyard_tombstone_0', 1, true, [
+    { key: 'decor_graveyard_tombstone_0', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(tombstoneA), TOMBSTONE_PALETTE) },
+  ]);
+  spriteAtlas.registerClip('decor_graveyard_tombstone_1', 1, true, [
+    { key: 'decor_graveyard_tombstone_1', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(tombstoneB), TOMBSTONE_PALETTE) },
+  ]);
+  spriteAtlas.registerClip('decor_graveyard_tombstone_2', 1, true, [
+    { key: 'decor_graveyard_tombstone_2', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(tombstoneC), TOMBSTONE_PALETTE) },
+  ]);
+
+  const treeA = twistedTreeGrid(0);
+  const treeB = twistedTreeGrid(2);
+  const stump = deadStumpGrid();
+  spriteAtlas.registerClip('decor_forest_tree_0', 1, true, [
+    { key: 'decor_forest_tree_0', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(treeA), TWISTED_TREE_PALETTE) },
+  ]);
+  spriteAtlas.registerClip('decor_forest_tree_1', 1, true, [
+    { key: 'decor_forest_tree_1', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(treeB), TWISTED_TREE_PALETTE) },
+  ]);
+  spriteAtlas.registerClip('decor_forest_tree_2', 1, true, [
+    { key: 'decor_forest_tree_2', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(stump), TWISTED_TREE_PALETTE) },
+  ]);
+
+  const shelfShort = bookshelfGrid(false);
+  const shelfTall = bookshelfGrid(true);
+  const scrolls = scrollPileGrid();
+  spriteAtlas.registerClip('decor_library_shelf_0', 1, true, [
+    { key: 'decor_library_shelf_0', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(shelfShort), LIBRARY_PALETTE) },
+  ]);
+  spriteAtlas.registerClip('decor_library_shelf_1', 1, true, [
+    { key: 'decor_library_shelf_1', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(shelfTall), LIBRARY_PALETTE) },
+  ]);
+  spriteAtlas.registerClip('decor_library_scrolls_0', 1, true, [
+    { key: 'decor_library_scrolls_0', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(scrolls), LIBRARY_PALETTE) },
+  ]);
+}
+
 export function registerCoreSprites(): void {
   registerPlayerSprites();
   registerBasicEnemySprites();
@@ -706,4 +1175,5 @@ export function registerCoreSprites(): void {
   registerBossSprites();
   registerWeaponSprites();
   registerVfxSprites();
+  registerDecorSprites();
 }

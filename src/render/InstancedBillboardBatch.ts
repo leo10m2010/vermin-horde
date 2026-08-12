@@ -94,6 +94,13 @@ export class InstancedBillboardBatch {
       // the player sprite is never buried under an overlapping pile of
       // enemies - readability trumps physical depth correctness here.
       depthTest: !alwaysOnTop,
+      // Facing flips (player/enemies/projectiles all mirror left-facing
+      // sprites by negating aSize.x - see Player.ts/EnemyManager.ts/
+      // ProjectileManager.ts) reverse the quad's screen-space winding order.
+      // With the default FrontSide, WebGL's backface culling then discarded
+      // the whole sprite any time it faced left - DoubleSide keeps both
+      // winding orders visible so mirrored billboards still render.
+      side: THREE.DoubleSide,
     });
 
     this.mesh = new THREE.InstancedMesh(this.geometry, this.material, capacity);

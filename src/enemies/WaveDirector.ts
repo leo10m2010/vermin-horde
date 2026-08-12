@@ -2,6 +2,7 @@ import { MathUtils } from 'three';
 import { DIFFICULTY, WORLD } from '../core/Constants';
 import { gameEvents } from '../core/EventBus';
 import type { EnemyManager } from '../entities/EnemyManager';
+import { luckScaledChance } from '../utils/luck';
 import type { EnemyTypeIds } from './EnemyTypes';
 import { pendingTelegraphs } from './EnemyTypes';
 
@@ -26,6 +27,7 @@ const MAX_SPAWNS_PER_FRAME = 60;
 
 const ROT_KING_ATTACK_INTERVAL = 3.5;
 const BONE_COLOSSUS_ATTACK_INTERVAL = 4.0;
+const DUSKFANG_ATTACK_INTERVAL = 2.6;
 
 /**
  * Drives trash-mob spawning (budget + elite rolls + type-mix ramp), boss
@@ -60,11 +62,14 @@ export class WaveDirector {
       { typeId: types.ghost, weight: 10, unlockAt: 210 },
       { typeId: types.spitter, weight: 8, unlockAt: 270 },
       { typeId: types.brute, weight: 5, unlockAt: 300 },
+      { typeId: types.ghoul, weight: 12, unlockAt: 120 },
+      { typeId: types.gargoyle, weight: 7, unlockAt: 240 },
     ];
 
     this.bossNameByTypeId = new Map([
       [types.rotKing, 'Rot King'],
       [types.boneColossus, 'Bone Colossus'],
+      [types.duskfang, 'Duskfang'],
     ]);
 
     gameEvents.on('enemyKilled', (e) => {
@@ -82,11 +87,11 @@ export class WaveDirector {
     });
   }
 
-  update(dt: number, elapsedSeconds: number, playerX: number, playerZ: number): void {
+  update(dt: number, elapsedSeconds: number, playerX: number, playerZ: number, luck = 0): void {
     this.lastPlayerX = playerX;
     this.lastPlayerZ = playerZ;
 
-    this.updateTrashSpawning(dt, elapsedSeconds, playerX, playerZ);
+    this.updateTrashSpawning(dt, elapsedSeconds, playerX, playerZ, luck);
     this.updateBossSchedule(elapsedSeconds, playerX, playerZ);
     this.updateBossAttacks(dt, playerX, playerZ);
     this.drainPendingTelegraphs(dt, playerX, playerZ);
@@ -118,10 +123,14 @@ export class WaveDirector {
 
   // --- trash mobs ---
 
-  private updateTrashSpawning(dt: number, elapsedSeconds: number, playerX: number, playerZ: number): void {
+  private updateTrashSpawning(dt: number, elapsedSeconds: number, playerX: number, playerZ: number, luck: number): void {
     const rampT = MathUtils.clamp(elapsedSeconds / DIFFICULTY.rampSeconds, 0, 1);
     const rate = MathUtils.lerp(DIFFICULTY.spawnBudgetStart, DIFFICULTY.spawnBudgetEnd, rampT);
-    const eliteChance = MathUtils.lerp(DIFFICULTY.eliteChanceStart, DIFFICULTY.eliteChanceEnd, rampT);
+    const baseEliteChance = MathUtils.lerp(DIFFICULTY.eliteChanceStart, DIFFICULTY.eliteChanceEnd, rampT);
+    // Luck scales elite odds the same way it scales rare-drop weight in VS
+    // (chance x TotalLuck) - a lucky build meets tougher, more rewarding
+    // fights more often instead of luck being a purely passive stat.
+    const eliteChance = luckScaledChance(baseEliteChance, luck, 0.6);
     this.budget += rate * dt;
 
     let guard = 0;
@@ -173,12 +182,13 @@ export class WaveDirector {
 
   private spawnNextBoss(playerX: number, playerZ: number): void {
     const i = this.spawnedBossCount;
-    const isRotKing = i % 2 === 0;
-    const repeatTier = Math.floor(i / 2);
-    const typeId = isRotKing ? this.types.rotKing : this.types.boneColossus;
-    const name = isRotKing ? 'Rot King' : 'Bone Colossus';
-    // Every second lap through the two boss types, scale them up so repeat
-    // encounters (we only have 2 boss types but 4 scheduled boss waves)
+    const slot = i % 3; // 0 = Rot King, 1 = Bone Colossus, 2 = Duskfang
+    const repeatTier = Math.floor(i / 3);
+    const typeId = slot === 0 ? this.types.rotKing : slot === 1 ? this.types.boneColossus : this.types.duskfang;
+    const name = slot === 0 ? 'Rot King' : slot === 1 ? 'Bone Colossus' : 'Duskfang';
+    const attackInterval = slot === 0 ? ROT_KING_ATTACK_INTERVAL : slot === 1 ? BONE_COLOSSUS_ATTACK_INTERVAL : DUSKFANG_ATTACK_INTERVAL;
+    // Every lap through the three boss types, scale them up so repeat
+    // encounters (we only have 3 boss types but 4 scheduled boss waves)
     // still read as an escalation rather than a rerun.
     const hpMult = 1 + repeatTier * 0.6;
     const speedMult = 1 + repeatTier * 0.08;
@@ -195,7 +205,7 @@ export class WaveDirector {
     this.bossStates.set(index, {
       typeId,
       name,
-      attackTimer: isRotKing ? ROT_KING_ATTACK_INTERVAL : BONE_COLOSSUS_ATTACK_INTERVAL,
+      attackTimer: attackInterval,
     });
     gameEvents.emit('bossSpawned', { name, x, z });
   }
@@ -211,9 +221,12 @@ export class WaveDirector {
         if (state.typeId === this.types.rotKing) {
           state.attackTimer = ROT_KING_ATTACK_INTERVAL;
           this.triggerRotKingAttack(index, playerX, playerZ);
-        } else {
+        } else if (state.typeId === this.types.boneColossus) {
           state.attackTimer = BONE_COLOSSUS_ATTACK_INTERVAL;
           this.triggerBoneColossusAttack(playerX, playerZ);
+        } else {
+          state.attackTimer = DUSKFANG_ATTACK_INTERVAL;
+          this.triggerDuskfangAttack(index, playerX, playerZ);
         }
       }
     }
@@ -237,6 +250,32 @@ export class WaveDirector {
       const z = playerZ + Math.sin(angle) * dist;
       const delay = 0.8 + k * 0.15;
       this.queueTelegraph(x, z, 2, delay, 18, '#c9c2a8');
+    }
+  }
+
+  /**
+   * Pounce Combo: three quick telegraphs advancing in a line from Duskfang's
+   * current position out through (and past) the player's current position,
+   * with a shrinking delay per step. Reads as a predator accelerating into a
+   * bite chain - a sweeping line of hits rather than one big circle (Rot
+   * King) or a scatter of circles (Bone Colossus). Individually small and
+   * dodgeable, but punishes standing still since all three converge on the
+   * same line.
+   */
+  private triggerDuskfangAttack(index: number, playerX: number, playerZ: number): void {
+    const bx = this.enemies.posX[index];
+    const bz = this.enemies.posZ[index];
+    const dx = playerX - bx;
+    const dz = playerZ - bz;
+    const dist = Math.sqrt(dx * dx + dz * dz) || 1;
+    const dirX = dx / dist;
+    const dirZ = dz / dist;
+    const delays = [0.85, 0.55, 0.3];
+    for (let k = 0; k < 3; k++) {
+      const stepDist = 2.5 + k * 2.5; // steps out from the boss, through and past the player
+      const x = bx + dirX * stepDist;
+      const z = bz + dirZ * stepDist;
+      this.queueTelegraph(x, z, 1.6, delays[k], 13, '#7ef7ff');
     }
   }
 

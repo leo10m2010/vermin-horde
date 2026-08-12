@@ -26,3 +26,8 @@ export { LevelUpEffects } from './LevelUpEffects';
 // dangerous beyond just being bigger. Construct once, add object3D, call
 // update(dt, enemies) every frame.
 export { EliteAura } from './EliteAura';
+// Generic pooled flat ground-ring renderer for weapon-owned AoE indicators
+// (Garlic's aura, Hex Flask's zones). Construct with a capacity, add
+// object3D, and let weapon `update()` methods drive acquire/set/release
+// directly - no per-frame update(dt) call needed here.
+export { GroundAreaRings } from './GroundAreaRings';

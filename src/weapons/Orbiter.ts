@@ -7,6 +7,9 @@ const ANGULAR_SPEED = 2.2; // rad/s
 const HIT_RADIUS = 0.5;
 const HIT_COOLDOWN = 0.35; // seconds a given blade must wait before re-damaging the same enemy
 const PRUNE_INTERVAL = 5; // seconds between stale hit-cooldown cleanups
+const EVOLVED_PULSE_INTERVAL = 3; // evolved-only: seconds between outward shockwave pulses
+const EVOLVED_PULSE_RADIUS_BONUS = 1.6; // extra radius beyond the orbit ring for the pulse's reach
+const EVOLVED_PULSE_DAMAGE_MULT = 1.5; // pulse damage relative to a single blade's per-tick damage
 
 /** 2-5 (7 evolved) blades orbiting the player, continuously damaging any enemy they touch. */
 export class OrbiterWeapon implements Weapon {
@@ -26,6 +29,7 @@ export class OrbiterWeapon implements Weapon {
   private readonly hitCooldowns = new Map<string, number>();
   private lastPrune = 0;
   private readonly hitBuffer: number[] = [];
+  private pulseCooldown = EVOLVED_PULSE_INTERVAL;
 
   constructor(private readonly visuals: VisualCache, private readonly weaponNumericId: number) {
     this.visualId = this.visuals.get('orbiter_blade', 0.5, [1, 1, 1], true);
@@ -73,6 +77,23 @@ export class OrbiterWeapon implements Weapon {
         const dmg = damagePerTick * (crit ? ctx.stats.critMultiplier : 1);
         ctx.enemies.damage(enemyIndex, dmg, crit);
         this.hitCooldowns.set(key, ctx.elapsed + HIT_COOLDOWN);
+      }
+    }
+
+    if (this.evolved) {
+      // Evolved ring periodically releases an outward shockwave beyond the blades' own reach, on top of the extra blades themselves.
+      this.pulseCooldown -= ctx.dt;
+      if (this.pulseCooldown <= 0) {
+        this.pulseCooldown = EVOLVED_PULSE_INTERVAL;
+        const pulseRadius = orbitRadius + EVOLVED_PULSE_RADIUS_BONUS;
+        const pulseCount = ctx.enemies.queryRadius(ctx.playerX, ctx.playerZ, pulseRadius, this.hitBuffer);
+        const pulseDamage = damagePerTick * EVOLVED_PULSE_DAMAGE_MULT;
+        for (let i = 0; i < pulseCount; i++) {
+          const enemyIndex = this.hitBuffer[i];
+          const crit = ctx.rng() < ctx.stats.critChance;
+          const dmg = pulseDamage * (crit ? ctx.stats.critMultiplier : 1);
+          ctx.enemies.damage(enemyIndex, dmg, crit);
+        }
       }
     }
 

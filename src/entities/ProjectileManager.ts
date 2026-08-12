@@ -47,6 +47,10 @@ export class ProjectileManager {
   readonly alive = new Uint8Array(this.capacity);
   readonly animTimer = new Float32Array(this.capacity);
   readonly spin = new Float32Array(this.capacity);
+  /** Per-instance render-size override; -1 (the default) means "use this instance's visual.spriteSize" unscaled.
+   * Needed by weapons whose persistent zone/ring visual must track a stat-scaled radius (area passives/arcanas)
+   * instead of the fixed size baked into the visual at registerVisual() time - see setSize(). */
+  readonly sizeOverride = new Float32Array(this.capacity).fill(-1);
 
   private readonly visuals: ProjectileVisual[] = [];
 
@@ -82,6 +86,7 @@ export class ProjectileManager {
     this.alive[index] = 1;
     this.animTimer[index] = 0;
     this.spin[index] = 0;
+    this.sizeOverride[index] = -1;
     return index;
   }
 
@@ -93,6 +98,13 @@ export class ProjectileManager {
   setPosition(index: number, x: number, z: number): void {
     this.posX[index] = x;
     this.posZ[index] = z;
+  }
+
+  /** Override this instance's on-screen size for this frame (world-unit diameter), instead of
+   * the fixed size baked into its visual definition. Pass a value >= 0; call every frame the
+   * instance is alive, since a fresh spawn() resets the override back to "use the visual default". */
+  setSize(index: number, size: number): void {
+    this.sizeOverride[index] = size;
   }
 
   /** Consume one pierce charge; despawns and returns true when exhausted. */
@@ -146,6 +158,7 @@ export class ProjectileManager {
 
       if (visual.spins) this.spin[i] += dt * 12;
       const facing = visual.spins ? Math.sign(Math.cos(this.spin[i])) || 1 : this.velX[i] >= 0 ? 1 : -1;
+      const size = this.sizeOverride[i] >= 0 ? this.sizeOverride[i] : visual.spriteSize;
 
       this.batch.set(
         i,
@@ -153,8 +166,8 @@ export class ProjectileManager {
         LAYER_Y.projectile,
         this.posZ[i],
         uv,
-        visual.spriteSize * facing,
-        visual.spriteSize,
+        size * facing,
+        size,
         visual.tint[0],
         visual.tint[1],
         visual.tint[2],

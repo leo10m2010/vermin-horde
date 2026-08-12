@@ -1,4 +1,5 @@
 import './styles.css';
+import './i18n/translations';
 import { Game } from './game/Game';
 
 const canvas = document.querySelector<HTMLCanvasElement>('#game-canvas');

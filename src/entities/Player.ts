@@ -2,10 +2,11 @@ import * as THREE from 'three';
 import type { InputController } from '../core/InputController';
 import { LAYER_Y, PLAYER, WORLD } from '../core/Constants';
 import type { PlayerStats } from '../game/GameState';
+import { gameEvents } from '../core/EventBus';
 import { InstancedBillboardBatch } from '../render/InstancedBillboardBatch';
 import { advanceAnimFrame, spriteAtlas } from '../render/SpriteAtlas';
 
-export type AnimState = 'idle' | 'walk' | 'hit' | 'death';
+export type AnimState = 'idle' | 'walk' | 'hit' | 'death' | 'cast';
 
 const SPRITE_WORLD_SIZE = 1.5;
 
@@ -19,6 +20,7 @@ export class Player {
   private animTimer = 0;
   private flashTimer = 0;
   private hitPoseTimer = 0;
+  private castPoseTimer = 0;
   private spriteKeyPrefix: string | null = null;
   readonly batch: InstancedBillboardBatch;
 
@@ -28,6 +30,11 @@ export class Player {
   constructor() {
     // alwaysOnTop=true: the player must never disappear under a pile of enemies.
     this.batch = new InstancedBillboardBatch(1, spriteAtlas.texture, 'player', true);
+    // Brief attack flourish pose whenever any weapon fires - purely cosmetic,
+    // decoupled from weapon logic via the event bus.
+    gameEvents.on('weaponFired', () => {
+      this.castPoseTimer = 0.18;
+    });
   }
 
   /** Switch to a selected character's `${key}_idle`/`${key}_walk` clips if registered; pass null to reset to the default adventurer sprite. */
@@ -51,6 +58,7 @@ export class Player {
     this.animState = 'idle';
     this.animTimer = 0;
     this.hitPoseTimer = 0;
+    this.castPoseTimer = 0;
     this.flashTimer = 0;
   }
 
@@ -58,6 +66,7 @@ export class Player {
     if (this.invulnTimer > 0) this.invulnTimer = Math.max(0, this.invulnTimer - delta);
     if (this.flashTimer > 0) this.flashTimer = Math.max(0, this.flashTimer - delta);
     if (this.hitPoseTimer > 0) this.hitPoseTimer = Math.max(0, this.hitPoseTimer - delta);
+    if (this.castPoseTimer > 0) this.castPoseTimer = Math.max(0, this.castPoseTimer - delta);
 
     if (!paused && !this.isDead) {
       input.readMovement(this.move);
@@ -73,20 +82,31 @@ export class Player {
       if (Math.abs(this.velocity.x) > 0.15) this.facing = this.velocity.x > 0 ? 1 : -1;
 
       const moving = this.velocity.lengthSq() > 0.05;
-      this.animState = this.hitPoseTimer > 0 ? 'hit' : moving ? 'walk' : 'idle';
+      this.animState = this.hitPoseTimer > 0 ? 'hit' : this.castPoseTimer > 0 ? 'cast' : moving ? 'walk' : 'idle';
     }
 
     this.animTimer += delta;
     const prefix = this.spriteKeyPrefix;
-    let clipName = 'player_idle';
-    if (this.animState === 'death' && spriteAtlas.hasClip('player_death')) clipName = 'player_death';
-    else if (this.animState === 'hit' && spriteAtlas.hasClip('player_hit')) clipName = 'player_hit';
-    else if (this.animState === 'walk') {
-      const charWalk = prefix ? `${prefix}_walk` : null;
-      clipName = charWalk && spriteAtlas.hasClip(charWalk) ? charWalk : spriteAtlas.hasClip('player_walk') ? 'player_walk' : 'player_idle';
+    // Only hit/cast/death clips are ever authored per-character today (see
+    // SpriteLibraryCharacters.ts) - walk/idle. Falling straight through to the
+    // shared generic `player_hit`/`player_cast`/`player_death` clips whenever
+    // a character-specific one is missing used to swap the visible sprite to
+    // the default adventurer mid-hit, making the selected character appear to
+    // "become someone else" for a frame. Fall back to that SAME character's
+    // own idle/walk clip instead - never the generic adventurer - so the
+    // sprite identity never changes; the white hit-flash shader tint already
+    // sells the "took damage" cue on its own.
+    let clipName: string;
+    if (this.animState === 'death') {
+      clipName = this.resolveClip(prefix, 'death') ?? this.resolveClip(prefix, 'idle') ?? 'player_death';
+    } else if (this.animState === 'hit') {
+      clipName = this.resolveClip(prefix, 'hit') ?? this.resolveClip(prefix, 'idle') ?? 'player_hit';
+    } else if (this.animState === 'cast') {
+      clipName = this.resolveClip(prefix, 'cast') ?? this.resolveClip(prefix, 'walk') ?? this.resolveClip(prefix, 'idle') ?? 'player_cast';
+    } else if (this.animState === 'walk') {
+      clipName = this.resolveClip(prefix, 'walk') ?? (spriteAtlas.hasClip('player_walk') ? 'player_walk' : 'player_idle');
     } else {
-      const charIdle = prefix ? `${prefix}_idle` : null;
-      clipName = charIdle && spriteAtlas.hasClip(charIdle) ? charIdle : 'player_idle';
+      clipName = this.resolveClip(prefix, 'idle') ?? 'player_idle';
     }
     const clip = spriteAtlas.getClip(clipName);
     const frame = advanceAnimFrame(clip, this.animTimer, 0);
@@ -112,6 +132,13 @@ export class Player {
       flash,
     );
     this.batch.commit();
+  }
+
+  /** `${prefix}_${suffix}` if a character is selected and that clip is registered, else null (caller falls back further). */
+  private resolveClip(prefix: string | null, suffix: string): string | null {
+    if (!prefix) return null;
+    const name = `${prefix}_${suffix}`;
+    return spriteAtlas.hasClip(name) ? name : null;
   }
 
   dispose(): void {

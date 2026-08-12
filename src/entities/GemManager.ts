@@ -6,11 +6,22 @@ import { spriteAtlas } from '../render/SpriteAtlas';
 
 // Exported so sibling VFX (GemCollectEffect) can mirror the exact same
 // value -> tier -> color mapping without duplicating the table.
+//
+// Thresholds are tuned against this roster's actual xpValue spread (trash
+// mobs: 1-5, bosses: 50-80 - see src/enemies/EnemyTypes.ts), not arbitrary
+// round numbers. The old thresholds (1/5/25/100) left the top gold tier
+// completely unreachable (no enemy hits 100) and collapsed every trash mob
+// except brute AND every boss into the same two tiers, so a grunt's gem
+// looked identical to a ghost's, and Rot King/Duskfang/Bone Colossus all
+// looked identical to EACH OTHER despite giving very different XP. Real
+// Vampire Survivors keeps only 3 gem colors for the same reason: a tier is
+// meant to read as "this kill's weight class," not a unique value per
+// source - but every weight class in OUR roster should actually be reachable.
 export const GEM_TIERS: Array<{ value: number; tint: [number, number, number]; size: number }> = [
-  { value: 1, tint: [0.5, 0.85, 1], size: 0.55 },
-  { value: 5, tint: [0.55, 1, 0.6], size: 0.7 },
-  { value: 25, tint: [1, 0.55, 0.95], size: 0.85 },
-  { value: 100, tint: [1, 0.8, 0.3], size: 1.0 },
+  { value: 1, tint: [0.5, 0.85, 1], size: 0.55 }, // lightest chaff: grunt, bat
+  { value: 2, tint: [0.55, 1, 0.6], size: 0.7 }, // mid trash: skeleton, wolf, ghost, spitter, ghoul, slime, gargoyle
+  { value: 5, tint: [1, 0.55, 0.95], size: 0.85 }, // heaviest trash: brute
+  { value: 40, tint: [1, 0.8, 0.3], size: 1.15 }, // any boss - always the top tier, distinctly bigger than the rest
 ];
 
 export function tierFor(value: number): number {

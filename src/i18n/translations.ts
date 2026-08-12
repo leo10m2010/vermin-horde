@@ -1,0 +1,225 @@
+import { registerTranslations } from './index';
+
+// Spanish/English pairs for every hardcoded UI string in the game. Grouped
+// by the file each pair originated from, purely to make future maintenance
+// easier - `registerTranslations` doesn't care about grouping.
+registerTranslations([
+  // --- UiRoot.ts (menu chrome) ---
+  { es: 'Sobrevive a la horda. Sube de nivel. Aguanta.', en: 'Survive the horde. Level up. Endure.' },
+  { es: 'Comenzar', en: 'Start' },
+  { es: 'Tienda', en: 'Shop' },
+  { es: 'Pausa', en: 'Pause' },
+  { es: 'Reanudar', en: 'Resume' },
+  { es: 'Elige una mejora', en: 'Choose an upgrade' },
+  { es: 'Has caído', en: 'You have fallen' },
+  { es: 'Jugar de nuevo', en: 'Play again' },
+  { es: '¡Victoria!', en: 'Victory!' },
+  { es: 'Tiempo sobrevivido', en: 'Time survived' },
+  { es: 'Muertes', en: 'Kills' },
+  { es: 'Nivel alcanzado', en: 'Level reached' },
+  { es: 'Oro ganado', en: 'Gold earned' },
+  { es: 'JEFE:', en: 'BOSS:' },
+  { es: 'Configuración', en: 'Settings' },
+  { es: 'Idioma', en: 'Language' },
+  { es: 'Español', en: 'Spanish' },
+  { es: 'Inglés', en: 'English' },
+  { es: 'Cerrar', en: 'Close' },
+  { es: 'Menú Principal', en: 'Main Menu' },
+
+  // --- CharacterSelect.ts ---
+  { es: 'Elige tu personaje', en: 'Choose your character' },
+  { es: 'Cada personaje inicia con un arma distinta y un rasgo único para toda la partida.', en: 'Each character starts with a different weapon and a unique trait for the whole run.' },
+  { es: '← Volver', en: '← Back' },
+
+  // --- StageSelect.ts ---
+  { es: 'Elige un escenario', en: 'Choose a stage' },
+  { es: 'Cada lugar esconde su propio terror.', en: 'Each place hides its own terror.' },
+
+  // --- Stages.ts (names + descriptions, Spanish source) ---
+  { es: 'Cementerio de la Luna Llena', en: 'Full Moon Graveyard' },
+  { es: 'Lápidas inclinadas bajo una luna enfermiza. Los muertos no descansan aquí.', en: 'Tilted headstones under a sickly moon. The dead do not rest here.' },
+  { es: 'Bosque Maldito', en: 'Cursed Forest' },
+  { es: 'Árboles retorcidos ocultan algo que respira entre las sombras.', en: 'Twisted trees hide something that breathes among the shadows.' },
+  { es: 'Biblioteca en Ruinas', en: 'Ruined Library' },
+  { es: 'Tomos prohibidos y polvo antiguo. El conocimiento tiene un precio.', en: 'Forbidden tomes and ancient dust. Knowledge has a price.' },
+
+  // --- Characters.ts (titles + trait descriptions, English source) ---
+  { es: 'La Muralla', en: 'The Rampart' },
+  { es: '+40% de vida máxima, -15% de velocidad de movimiento', en: '+40% max health, -15% move speed' },
+  { es: 'La Corredora Roja', en: 'The Redline Runner' },
+  {
+    es: '+30% de velocidad, +20% de probabilidad crítica, -20% de vida máxima. Los bonos de velocidad y crítico bajan a +8%/+5% para el nivel 6 (la penalización de vida es permanente).',
+    en: '+30% move speed, +20% crit chance, -20% max health. Speed and crit bonuses fade down to +8%/+5% by level 6 (the health penalty is permanent).',
+  },
+  { es: 'La Guardiana Circular', en: 'The Circling Warden' },
+  { es: '+25% de área. +1% de área cada nivel a partir de ahí, sin límite.', en: '+25% area. +1% area every level thereafter, uncapped.' },
+  { es: 'La de Cenizas', en: 'The Cinderborn' },
+  {
+    es: '+15% de área, +15% de daño. +5% de daño cada 5 niveles, con tope en el nivel 20 (~+40% de daño total).',
+    en: '+15% area, +15% damage. +5% damage every 5 levels, capping at level 20 (~+40% damage total).',
+  },
+  { es: 'La Mano de la Fortuna', en: "Fortune's Hand" },
+  {
+    es: '+0.2 de suerte, +35% de radio de imán, +15% de ganancia de XP. Nivel 20: Premio Mayor - +0.35 de suerte, +10% de probabilidad crítica.',
+    en: "+0.2 luck, +35% magnet radius, +15% XP gain. Level 20: Jackpot - +0.35 luck, +10% crit chance.",
+  },
+  { es: 'La Mano Firme', en: 'The Steady Hand' },
+  {
+    es: '+10% de vida máxima, +10% de daño, +10% de velocidad de movimiento, +10% de reducción de reutilización',
+    en: '+10% max health, +10% damage, +10% move speed, +10% cooldown reduction',
+  },
+
+  // --- Game.ts (toasts + static HUD labels from index.html) ---
+  { es: 'la horda crece', en: 'the horde grows' },
+  { es: 'MINUTO', en: 'MINUTE' },
+  { es: 'COFRE DORADO', en: 'GILDED CACHE' },
+  { es: 'oro', en: 'gold' },
+  { es: 'Lv', en: 'Lv' },
+  { es: 'muertes', en: 'kills' },
+
+  // --- UiRoot.ts (upgrade-card kind tags, Spanish source; "Sube de nivel" reuses the pair registered below in the UpgradeSystem.ts block) ---
+  { es: 'Nueva arma', en: 'New weapon' },
+  { es: 'Pasiva', en: 'Passive' },
+
+  // --- WeaponRegistry.ts (weapon names, English source) ---
+  { es: 'Varita Mágica', en: 'Magic Wand' },
+  { es: 'Hacha', en: 'Axe' },
+  { es: 'Cuchillo', en: 'Knife' },
+  { es: 'Bola de Fuego', en: 'Fireball' },
+  { es: 'Aura de Ajo', en: 'Garlic Aura' },
+  { es: 'Cuchillas Sagradas', en: 'Holy Blades' },
+  { es: 'Golpe de Látigo', en: 'Whip Strike' },
+  { es: 'Cruz de Arco', en: 'Arc Cross' },
+  { es: 'Varita de Ascuas', en: 'Ember Wand' },
+  { es: 'Fragmento Rúnico', en: 'Rune Shard' },
+  { es: 'Frasco de Maldición', en: 'Hex Flask' },
+
+  // --- UpgradeSystem.ts (dynamic upgrade-card template pieces + passive defs, English source) ---
+  { es: 'Desbloquea', en: 'Unlock' },
+  { es: 'un nuevo ataque.', en: 'a new attack.' },
+  { es: 'Sube de nivel', en: 'Level up' },
+  { es: 'a nivel', en: 'to level' },
+  { es: 'Amuleto de Poder', en: 'Power Charm' },
+  { es: '+8% de daño', en: '+8% damage' },
+  { es: 'Anillo de Vitalidad', en: 'Vitality Ring' },
+  { es: '+20 de vida máxima (curación completa)', en: '+20 max health (fully healed)' },
+  { es: 'Piel de Hierro', en: 'Iron Skin' },
+  { es: '+1 de armadura', en: '+1 armor' },
+  { es: 'Botas Veloces', en: 'Swift Boots' },
+  { es: '+6% de velocidad de movimiento', en: '+6% move speed' },
+  { es: 'Alcance Amplio', en: 'Wide Reach' },
+  { es: '+8% de área', en: '+8% area' },
+  { es: 'Manos Rápidas', en: 'Quick Hands' },
+  { es: '-6% de reutilización', en: '-6% cooldown' },
+  { es: 'Fuerza del Viento', en: 'Windforce' },
+  { es: '+12% de velocidad de proyectil', en: '+12% projectile speed' },
+  { es: 'Amuleto Magnético', en: 'Magnet Charm' },
+  { es: '+0.6 de radio de imán', en: '+0.6 pickup radius' },
+  { es: 'Regeneración', en: 'Regeneration' },
+  { es: '+0.3 HP/s de regeneración', en: '+0.3 HP/s regen' },
+  { es: 'Trébol de Cuatro Hojas', en: 'Four-Leaf Clover' },
+  { es: '+5% de suerte', en: '+5% luck' },
+  { es: 'Instinto Asesino', en: 'Killer Instinct' },
+  { es: '+3% de probabilidad crítica', en: '+3% crit chance' },
+  { es: 'Morral de Munición', en: 'Ammo Satchel' },
+  { es: '+1 proyectil extra', en: '+1 extra projectile' },
+  { es: 'Reloj de Arena Eterno', en: 'Timeless Hourglass' },
+  { es: '+10% de duración de efecto', en: '+10% effect duration' },
+  { es: 'Sigilo de Crecimiento', en: 'Growth Sigil' },
+  { es: '+8% de ganancia de XP', en: '+8% XP gain' },
+  { es: 'Pluma de Fénix', en: 'Phoenix Feather' },
+  { es: '+1 resurrección - sobrevive a un golpe fatal', en: '+1 revival - survive a fatal hit' },
+
+  // --- ArcanaSystem.ts (arcana names/descriptions, English source) + ArcanaPicker.ts chrome ---
+  { es: 'Arcano Despertado', en: 'Arcana Awakened' },
+  { es: 'Un poder raro se manifiesta. Elige uno.', en: 'A rare power manifests. Choose one.' },
+  { es: 'Pacto de Sangre', en: 'Blood Pact' },
+  {
+    es: '+40% de daño, pero -15% de vida máxima. Una versión más grande y arriesgada del poder puro.',
+    en: '+40% damage, but -15% max health. A bigger, riskier version of raw power.',
+  },
+  { es: 'Ímpetu Imperecedero', en: 'Undying Momentum' },
+  {
+    es: '+25% de velocidad de movimiento y +25% de velocidad de proyectil. Todo se vuelve más rápido, permanentemente.',
+    en: '+25% move speed and +25% projectile speed. Everything gets faster, permanently.',
+  },
+  { es: 'Segunda Oportunidad', en: 'Second Chance' },
+  {
+    es: 'Te cura por completo y otorga 2 cargas de resurrección extra.',
+    en: 'Fully heals you and grants 2 extra revive charges.',
+  },
+  { es: 'Ojo de la Fortuna', en: "Fortune's Eye" },
+  {
+    es: 'Un gran salto en suerte y crítico: +30% de suerte, +15% de probabilidad crítica, +50% de daño crítico.',
+    en: 'A huge spike in luck and crit: +30% luck, +15% crit chance, +50% crit damage.',
+  },
+  { es: 'Sobrecrecimiento', en: 'Overgrowth' },
+  {
+    es: '+35% de área, +20% de duración de efecto en todas las armas.',
+    en: '+35% area, +20% effect duration on every weapon.',
+  },
+  { es: 'Sangre de Titán', en: "Titan's Blood" },
+  {
+    es: '+80 de vida máxima (curación completa) y +2 de armadura.',
+    en: '+80 max health (fully healed) and +2 armor.',
+  },
+  { es: 'Asalto Frenético', en: 'Frenzied Assault' },
+  {
+    es: '-25% de reutilización y +2 proyectiles extra en todo tu arsenal.',
+    en: '-25% cooldown and +2 extra projectiles across your arsenal.',
+  },
+  { es: 'Cosecha Dorada', en: 'Golden Harvest' },
+  {
+    es: '+40% de ganancia de XP, +1.2 de radio de imán, +1 HP/s de regeneración. Un gran paquete de utilidad.',
+    en: '+40% XP gain, +1.2 pickup radius, +1 HP/s regen. A big lump of utility.',
+  },
+  { es: 'Oleaje', en: 'Tidal Surge' },
+  {
+    es: '+15% de velocidad de proyectil de inmediato. Para siempre después, la velocidad de proyectil también sube y baja en un ciclo constante de 6 segundos, oscilando entre 0.6x y 1.6x - el ritmo nunca se asienta.',
+    en: '+15% projectile speed immediately. Forever after, projectile speed also surges and ebbs on a steady 6-second cycle, swinging between 0.6x and 1.6x - the rhythm never settles.',
+  },
+  { es: 'Latido Adrenal', en: 'Adrenal Heartbeat' },
+  {
+    es: '+15% de daño crítico de inmediato. Para siempre después, tu pulso late cada 4 segundos: la probabilidad crítica sube +45% por un breve instante y luego vuelve a la normalidad.',
+    en: '+15% crit damage immediately. Forever after, your pulse pounds every 4 seconds: crit chance spikes by +45% for a brief instant, then fades back to normal.',
+  },
+  { es: 'Crecimiento Marchito', en: 'Withering Growth' },
+  {
+    es: '-20% de velocidad de movimiento y -15% de vida máxima, permanentemente. A cambio, el daño aumenta de forma continua y sin límite por el resto de la partida - aproximadamente +6% cada minuto sobrevivido.',
+    en: '-20% move speed and -15% max health, permanently. In exchange, damage ramps up continuously and without limit for the rest of the run - roughly +6% every minute survived.',
+  },
+  { es: 'Flujo y Reflujo', en: 'Ebb and Flow' },
+  {
+    es: '+1 de armadura de inmediato. Para siempre después, la regeneración de HP aumenta en una rampa de 8 segundos hasta 6 HP/s, luego vuelve a cero y comienza de nuevo - tramos escasos seguidos de un aumento, en bucle.',
+    en: '+1 armor immediately. Forever after, HP regen builds across an 8-second ramp up to 6 HP/s, then snaps back to nothing and starts again - lean stretches followed by a surge, on repeat.',
+  },
+
+  // --- MetaProgression.ts (shop upgrade defs, English source) + Shop.ts chrome ---
+  { es: 'Mercader Errante', en: 'Wandering Merchant' },
+  { es: 'Nv.', en: 'Lv.' },
+  { es: 'Máximo', en: 'Max' },
+  { es: 'Comprar', en: 'Buy' },
+  { es: 'Vigor Ancestral', en: 'Ancestral Vigor' },
+  { es: '+12 de vida máxima por nivel, aplicado al inicio de cada partida.', en: '+12 max health per level, applied at the start of every run.' },
+  { es: 'Botas de Tumba', en: 'Grave Boots' },
+  { es: '+0.12 de velocidad de movimiento por nivel.', en: '+0.12 move speed per level.' },
+  { es: 'Amuleto de Hueso', en: 'Bone Charm' },
+  { es: '+2% de suerte por nivel (favorece tiradas raras/élite).', en: '+2% luck per level (nudges rare/elite rolls).' },
+  { es: 'Piedra de Guardia', en: 'Wardstone' },
+  { es: '+1 de armadura por nivel.', en: '+1 armor per level.' },
+  { es: 'Corazón de Ascuas', en: 'Ember Heart' },
+  { es: '+3% de daño por nivel.', en: '+3% damage per level.' },
+  { es: 'Paso Veloz', en: 'Fleet Step' },
+  { es: '+5% de velocidad de proyectil por nivel.', en: '+5% projectile speed per level.' },
+  { es: 'Ojo de Cazador', en: "Hunter's Eye" },
+  { es: '+1.5% de probabilidad crítica por nivel.', en: '+1.5% crit chance per level.' },
+  { es: 'Regeneración Espiritual', en: 'Spirit Regen' },
+  { es: '+0.15 HP/s de regeneración por nivel.', en: '+0.15 HP/s regeneration per level.' },
+  { es: 'Bolsa de Monedas Vieja', en: 'Old Coin Purse' },
+  {
+    es: '+10% de oro ganado por nivel, en esta y todas las futuras partidas. Se acumula con el tiempo.',
+    en: '+10% gold earned per level, in this and every future run. Compounds over time.',
+  },
+  { es: 'Segundo Aliento', en: 'Second Wind' },
+  { es: 'Otorga 1 carga de resurrección al inicio de cada partida.', en: 'Grants 1 revive charge at the start of every run.' },
+]);

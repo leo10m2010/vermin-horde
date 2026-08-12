@@ -7,6 +7,7 @@ const BASE_DAMAGE = 10;
 const BASE_REACH = 3.2; // half-length of the band along the facing axis, both directions
 const BASE_HALF_WIDTH = 1.15; // half-width of the band perpendicular to facing
 const SLASH_VISUAL_LIFE = 0.14;
+const EVOLVED_KNOCKBACK_DISTANCE = 0.9; // evolved-only: instant push-back applied to every enemy struck
 
 /**
  * Melee weapon: no projectile hit-testing - directly damages every enemy
@@ -70,6 +71,12 @@ export class WhipStrikeWeapon implements Weapon {
       const dmg = damage * (crit ? ctx.stats.critMultiplier : 1);
       ctx.enemies.damage(enemyIndex, dmg, crit);
       hitAny = true;
+      if (this.evolved) {
+        // Evolved lash knocks struck enemies back along the hit vector instead of just damaging them in place.
+        const pushDist = Math.sqrt(dx * dx + dz * dz) || 1;
+        ctx.enemies.posX[enemyIndex] += (dx / pushDist) * EVOLVED_KNOCKBACK_DISTANCE;
+        ctx.enemies.posZ[enemyIndex] += (dz / pushDist) * EVOLVED_KNOCKBACK_DISTANCE;
+      }
     }
 
     // Decorative slash instances on both sides so the swing reads visually even with no kills.

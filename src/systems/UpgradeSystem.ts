@@ -1,5 +1,7 @@
 import { gameEvents } from '../core/EventBus';
 import type { PlayerStats } from '../game/GameState';
+import { t } from '../i18n';
+import { bonusSlotChance, totalLuck } from '../utils/luck';
 import { WEAPON_ROSTER } from '../weapons/WeaponRegistry';
 import type { WeaponSystem } from '../weapons/WeaponSystem';
 
@@ -8,6 +10,10 @@ export interface UpgradeOption {
   name: string;
   description: string;
   kind: 'new-weapon' | 'weapon-level' | 'passive';
+}
+
+interface WeightedOption extends UpgradeOption {
+  weight: number;
 }
 
 interface PassiveDef {
@@ -142,9 +148,19 @@ export class UpgradeSystem {
   /**
    * `ownedPassives` (stack ledger, id -> count - typically GameState.ownedPassives)
    * is required so the pool can skip any passive already at its `maxStacks` cap.
+   *
+   * `luck` (typically `stats.luck`) drives two VS-mirrored effects:
+   *  - a 4th option can appear on top of the base `count`, with probability
+   *    `1 - 1/TotalLuck` (0 at zero luck, rising smoothly, no hard cap needed
+   *    since the formula self-limits below 1).
+   *  - already-owned weapons/passives are upweighted by TotalLuck so a lucky
+   *    build leans toward completing what it has instead of a flat-uniform
+   *    roll across everything, same flavor as VS's "ownedChance" upweight.
    */
-  rollChoices(rng: () => number, ownedPassives: Map<string, number>, count = 3): UpgradeOption[] {
-    const pool: UpgradeOption[] = [];
+  rollChoices(rng: () => number, ownedPassives: Map<string, number>, count = 3, luck = 0, allowBonusSlot = true): UpgradeOption[] {
+    const pool: WeightedOption[] = [];
+    const BASE_WEIGHT = 10;
+    const ownedWeightMult = totalLuck(luck);
 
     const ownedIds = new Set(this.weapons.listOwned().map((w) => w.id));
     if (this.weapons.ownedCount() < this.weapons.maxSlots) {
@@ -153,8 +169,9 @@ export class UpgradeSystem {
         pool.push({
           id: entry.id,
           name: entry.name,
-          description: `Unlock ${entry.name} - a new attack.`,
+          description: `${t('Unlock')} ${t(entry.name)} - ${t('a new attack.')}`,
           kind: 'new-weapon',
+          weight: BASE_WEIGHT,
         });
       }
     }
@@ -164,8 +181,9 @@ export class UpgradeSystem {
       pool.push({
         id: owned.id,
         name: owned.name,
-        description: `Level up ${owned.name} to level ${owned.level + 1}.`,
+        description: `${t('Level up')} ${t(owned.name)} ${t('to level')} ${owned.level + 1}.`,
         kind: 'weapon-level',
+        weight: BASE_WEIGHT * ownedWeightMult,
       });
     }
 
@@ -177,16 +195,33 @@ export class UpgradeSystem {
         name: passive.name,
         description: passive.description,
         kind: 'passive',
+        weight: owned > 0 ? BASE_WEIGHT * ownedWeightMult : BASE_WEIGHT,
       });
     }
 
-    // Fisher-Yates partial shuffle routed through the seeded rng, then take the front slice.
-    for (let i = pool.length - 1; i > 0; i--) {
-      const j = Math.floor(rng() * (i + 1));
-      [pool[i], pool[j]] = [pool[j], pool[i]];
-    }
+    const slotCount = allowBonusSlot && rng() < bonusSlotChance(luck) ? count + 1 : count;
+    return this.weightedSample(pool, Math.min(slotCount, pool.length), rng);
+  }
 
-    return pool.slice(0, Math.min(count, pool.length));
+  /** Weighted sampling without replacement: repeatedly pick proportional to remaining weight, then remove. */
+  private weightedSample(pool: WeightedOption[], count: number, rng: () => number): UpgradeOption[] {
+    const remaining = pool.slice();
+    const picks: UpgradeOption[] = [];
+    for (let n = 0; n < count && remaining.length > 0; n++) {
+      const totalWeight = remaining.reduce((sum, o) => sum + o.weight, 0);
+      let roll = rng() * totalWeight;
+      let chosenIndex = remaining.length - 1;
+      for (let i = 0; i < remaining.length; i++) {
+        roll -= remaining[i].weight;
+        if (roll <= 0) {
+          chosenIndex = i;
+          break;
+        }
+      }
+      picks.push(remaining[chosenIndex]);
+      remaining.splice(chosenIndex, 1);
+    }
+    return picks;
   }
 
   /** `ownedPassives` (typically GameState.ownedPassives) is incremented in place when a passive is picked, so WeaponSystem's evolution gate can see it. */

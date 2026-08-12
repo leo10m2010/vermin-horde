@@ -1,6 +1,7 @@
 import type { EnemyManager } from '../entities/EnemyManager';
 import type { ProjectileManager } from '../entities/ProjectileManager';
 import type { PlayerStats } from '../game/GameState';
+import type { GroundAreaRings } from '../vfx/GroundAreaRings';
 import { gameEvents } from '../core/EventBus';
 import type { Weapon, WeaponContext } from './WeaponBase';
 import { VisualCache } from './WeaponBase';
@@ -44,6 +45,7 @@ export class WeaponSystem {
   constructor(
     private readonly enemies: EnemyManager,
     private readonly projectiles: ProjectileManager,
+    private readonly groundRings: GroundAreaRings,
     private readonly rng: () => number,
   ) {
     this.visuals = new VisualCache(projectiles);
@@ -61,7 +63,7 @@ export class WeaponSystem {
     playerVZ: number,
     stats: PlayerStats,
   ): void {
-    const ctx: WeaponContext = { enemies: this.enemies, projectiles: this.projectiles, stats, playerX, playerZ, playerVX, playerVZ, dt, elapsed, rng: this.rng };
+    const ctx: WeaponContext = { enemies: this.enemies, projectiles: this.projectiles, groundRings: this.groundRings, stats, playerX, playerZ, playerVX, playerVZ, dt, elapsed, rng: this.rng };
     for (const weapon of this.owned.values()) weapon.update(ctx);
     this.resolveProjectileHits(ctx);
   }

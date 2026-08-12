@@ -66,6 +66,8 @@ export const POOL_CAPACITY = {
   projectiles: 900,
   gems: 1200,
   particles: 2200,
+  // Gilded Caches are a rare elite/boss drop - never more than a handful alive at once.
+  treasures: 24,
   // Each damage number is its own THREE.Sprite + CanvasTexture (not part of
   // the shared InstancedBillboardBatch system), so this pool size directly
   // bounds worst-case draw calls/textures during heavy multi-weapon combat.

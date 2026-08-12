@@ -31,7 +31,15 @@ export class BossTelegraphRings {
 
   constructor() {
     this.group.name = 'vfx-boss-telegraphs';
-    this.geometry = new THREE.RingGeometry(RING_INNER_FRACTION, 1, 40);
+    // Low segment count on purpose (was 40, a near-perfect circle): every
+    // other on-screen effect - enemies, player, projectiles, pickups - is
+    // chunky hard-edged pixel art, so a smooth vector-style ring stood out
+    // like a glitch rather than a deliberate warning telegraph. A faceted
+    // low-poly ring still reads unmistakably as "danger zone" while
+    // matching that retro, low-fidelity house style. Kept a couple of
+    // segments rounder than EliteAura's since this is a time-critical
+    // dodge cue that needs to read clearly at a glance.
+    this.geometry = new THREE.RingGeometry(RING_INNER_FRACTION, 1, 12);
     this.geometry.rotateX(-Math.PI / 2);
 
     for (let i = 0; i < this.capacity; i++) {

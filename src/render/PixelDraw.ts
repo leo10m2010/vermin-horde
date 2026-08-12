@@ -5,18 +5,46 @@
  * set by SpriteAtlas, so edges stay crisp.
  */
 
-/** grid rows top-to-bottom, each a string where each char maps to a palette color; '.' = transparent. */
+/**
+ * grid rows top-to-bottom, each a string where each char maps to a palette
+ * color; '.' = transparent. Pass `outlineColor` to stamp a 1-cell dark halo
+ * around the silhouette first (drawn into every transparent cell orthogonally
+ * adjacent to a filled one) before painting the real colors on top - the
+ * crisp dark contour real pixel-art character sprites (Vampire Survivors
+ * included) almost always have, and which a flat-fill-only sprite reads as
+ * "flat icon" rather than "character" without.
+ */
 export function drawPixelGrid(
   ctx: CanvasRenderingContext2D,
   cellSize: number,
   grid: string[],
   palette: Record<string, string>,
+  outlineColor?: string,
 ): void {
   const rows = grid.length;
   const cols = Math.max(...grid.map((r) => r.length));
   const px = cellSize / Math.max(rows, cols);
   const offsetX = (cellSize - cols * px) / 2;
   const offsetY = (cellSize - rows * px) / 2;
+  const isFilled = (x: number, y: number): boolean => {
+    const ch = grid[y]?.[x];
+    return ch !== undefined && ch !== '.' && ch !== ' ';
+  };
+
+  if (outlineColor) {
+    ctx.fillStyle = outlineColor;
+    for (let y = 0; y < rows; y++) {
+      const row = grid[y];
+      for (let x = 0; x < row.length; x++) {
+        if (!isFilled(x, y)) continue;
+        if (!isFilled(x, y - 1)) ctx.fillRect(Math.round(offsetX + x * px), Math.round(offsetY + (y - 1) * px), Math.ceil(px), Math.ceil(px));
+        if (!isFilled(x, y + 1)) ctx.fillRect(Math.round(offsetX + x * px), Math.round(offsetY + (y + 1) * px), Math.ceil(px), Math.ceil(px));
+        if (!isFilled(x - 1, y)) ctx.fillRect(Math.round(offsetX + (x - 1) * px), Math.round(offsetY + y * px), Math.ceil(px), Math.ceil(px));
+        if (!isFilled(x + 1, y)) ctx.fillRect(Math.round(offsetX + (x + 1) * px), Math.round(offsetY + y * px), Math.ceil(px), Math.ceil(px));
+      }
+    }
+  }
+
   for (let y = 0; y < rows; y++) {
     const row = grid[y];
     for (let x = 0; x < row.length; x++) {

@@ -58,6 +58,10 @@ export type GameEvents = {
   bossTelegraph: { x: number; z: number; radius: number; delaySeconds: number; color?: string };
   /** Passive/weapon evolution unlocked a new visual - lets VFX/audio react without polling. */
   passiveGained: { id: string; name: string };
+  /** A Gilded Cache appeared in the world (elite/boss kill drop) - lets VFX mark the spot. */
+  treasureSpawned: { x: number; z: number };
+  /** Player collected a Gilded Cache; luck rolled `tier` bonus picks (1/3/5), already applied. */
+  treasureOpened: { x: number; z: number; tier: number; rewardNames: string[]; bonusGold: number };
 };
 
 export const gameEvents = new EventBus<GameEvents>();

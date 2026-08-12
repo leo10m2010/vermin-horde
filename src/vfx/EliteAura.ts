@@ -33,7 +33,12 @@ export class EliteAura {
 
   constructor() {
     this.group.name = 'vfx-elite-auras';
-    this.geometry = new THREE.RingGeometry(RING_INNER_FRACTION, 1, 28);
+    // Low segment count on purpose: the rest of the game is chunky
+    // hard-edged pixel art (see PixelDraw.ts), so a near-perfectly-smooth
+    // THREE.RingGeometry circle reads as a stray modern-UI element rather
+    // than an intentional effect. A faceted low-poly decagon still clearly
+    // reads as "ring" while matching that retro, low-fidelity house style.
+    this.geometry = new THREE.RingGeometry(RING_INNER_FRACTION, 1, 10);
     this.geometry.rotateX(-Math.PI / 2);
 
     for (let i = 0; i < this.capacity; i++) {

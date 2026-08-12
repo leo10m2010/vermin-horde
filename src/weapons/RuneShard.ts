@@ -9,6 +9,7 @@ const BASE_SPEED = 16;
 const WANDER_DURATION = 4; // total lifetime once launched
 const DIRECTION_CHANGE_INTERVAL = 0.6;
 const ARENA_SOFT_BOUNDARY = WORLD.halfExtent * 0.8; // beyond this, bias new headings back toward center
+const EVOLVED_SEEK_RANGE = 6; // evolved-only: shards hunt for the nearest enemy within this radius at each turn
 
 /**
  * Fast, tiny, infinite-pierce projectile that never really "aims" after
@@ -83,7 +84,13 @@ export class RuneShardWeapon implements Weapon {
       const px = ctx.projectiles.posX[index];
       const pz = ctx.projectiles.posZ[index];
       let angle: number;
-      if (Math.abs(px) > ARENA_SOFT_BOUNDARY || Math.abs(pz) > ARENA_SOFT_BOUNDARY) {
+      const seekTarget = this.evolved ? ctx.enemies.queryNearest(px, pz, EVOLVED_SEEK_RANGE) : -1;
+      if (seekTarget !== -1) {
+        // Evolved shards actively hunt the nearest enemy at each turn instead of picking a fully random heading.
+        const dx = ctx.enemies.posX[seekTarget] - px;
+        const dz = ctx.enemies.posZ[seekTarget] - pz;
+        angle = Math.atan2(dz, dx);
+      } else if (Math.abs(px) > ARENA_SOFT_BOUNDARY || Math.abs(pz) > ARENA_SOFT_BOUNDARY) {
         // bias heading back toward the arena center with some spread so it doesn't hug the wall
         const centerAngle = Math.atan2(-pz, -px);
         angle = centerAngle + (ctx.rng() - 0.5) * Math.PI * 0.6;

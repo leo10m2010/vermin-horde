@@ -159,6 +159,21 @@ export class MetaProgression {
     // Belt-and-suspenders: persist whenever a run ends, regardless of
     // whether the director also calls save() itself.
     gameEvents.on('runOver', () => this.save());
+
+    gameEvents.on('treasureOpened', (e) => {
+      const goldMultiplier = 1 + this.getUpgradeLevel('old_coin_purse') * 0.1;
+      this.addGold(Math.round(e.bonusGold * goldMultiplier));
+    });
+
+    // Gold earned mid-run only lived in memory until runOver/buyUpgrade
+    // explicitly flushed it - closing the tab, refreshing, or the browser
+    // crashing mid-run silently lost that run's progress. These two catch
+    // every other way a page can go away (tab close, refresh, navigate away,
+    // switching tabs, minimizing) so a run's gold is never stranded.
+    window.addEventListener('beforeunload', () => this.save());
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) this.save();
+    });
   }
 
   get gold(): number {

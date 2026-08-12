@@ -7,6 +7,7 @@ const BASE_DAMAGE = 16;
 const BASE_SPEED = 6;
 const SPLASH_FRACTION = 0.6;
 const TURN_RATE = 5; // rad/s max steering toward target while in flight
+const EVOLVED_LIFESTEAL_FRACTION = 0.06; // evolved-only: fraction of direct-hit damage returned as player healing
 
 /** Slow, gently-homing projectile that explodes for AoE splash damage on impact. */
 export class FireballWeapon implements Weapon {
@@ -83,6 +84,10 @@ export class FireballWeapon implements Weapon {
       const idx = buffer[i];
       if (idx === hitEnemyIndex) continue; // avoid double-dipping the primary target
       ctx.enemies.damage(idx, splashDamage, false);
+    }
+    if (this.evolved) {
+      // Evolved inferno sears a little life back into the caster on every direct hit.
+      ctx.stats.health = Math.min(ctx.stats.maxHealth, ctx.stats.health + directDamage * EVOLVED_LIFESTEAL_FRACTION);
     }
   }
 

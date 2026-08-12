@@ -1,4 +1,6 @@
-import { getUpgradeIconDataUrl } from './Icons';
+import { getSettingsIconDataUrl, getUpgradeIconDataUrl } from './Icons';
+import { createMenuBackdrop } from './MenuBackdrop';
+import { getLang, setLang, t } from '../i18n';
 
 export interface UpgradeOptionLike {
   id: string;
@@ -7,12 +9,19 @@ export interface UpgradeOptionLike {
   kind?: string;
 }
 
+const UPGRADE_KIND_LABELS: Record<string, string> = {
+  'new-weapon': 'Nueva arma',
+  'weapon-level': 'Sube de nivel',
+  passive: 'Pasiva',
+};
+
 export interface UiCallbacks {
   onStartRun: () => void;
   onResumeRun: () => void;
   onRestartRun: () => void;
   onUpgradeChosen: (option: UpgradeOptionLike) => void;
   onOpenShop: () => void;
+  onQuitToMenu: () => void;
 }
 
 interface RunSummaryStats {
@@ -62,23 +71,31 @@ export class UiRoot {
       title.textContent = 'VERMIN HORDE';
       const subtitle = document.createElement('p');
       subtitle.className = 'ui-subtitle';
-      subtitle.textContent = 'Sobrevive a la horda. Sube de nivel. Aguanta.';
-      const startBtn = this.buildButton('Comenzar', 'ui-btn--primary', () => this.callbacks.onStartRun());
-      const shopBtn = this.buildButton('Tienda', 'ui-btn--secondary', () => this.callbacks.onOpenShop());
+      subtitle.textContent = t('Sobrevive a la horda. Sube de nivel. Aguanta.');
+      const startBtn = this.buildButton(t('Comenzar'), 'ui-btn--primary', () => this.callbacks.onStartRun());
+      const shopBtn = this.buildButton(t('Tienda'), 'ui-btn--secondary', () => this.callbacks.onOpenShop());
       const menuActions = document.createElement('div');
       menuActions.className = 'ui-menu-actions';
       menuActions.append(startBtn, shopBtn);
       panel.append(title, subtitle, menuActions);
+      panel.append(this.buildSettingsIcon());
       return panel;
     });
+    // Purely decorative atmosphere layer (drifting fog, embers, bat
+    // silhouettes) prepended behind the menu panel. Lives entirely in its
+    // own module (MenuBackdrop.ts) and is CSS-animated, so it never touches
+    // the Three.js canvas/scene and needs no per-frame JS to pause/resume -
+    // hiding the overlay already removes it from the render tree.
+    this.mainMenuEl.prepend(createMenuBackdrop());
 
     this.pauseEl = this.buildOverlay('ui-pause', () => {
       const panel = this.buildPanel();
       const heading = document.createElement('h2');
       heading.className = 'ui-heading';
-      heading.textContent = 'Pausa';
-      const resumeBtn = this.buildButton('Reanudar', 'ui-btn--primary', () => this.callbacks.onResumeRun());
-      panel.append(heading, resumeBtn);
+      heading.textContent = t('Pausa');
+      const resumeBtn = this.buildButton(t('Reanudar'), 'ui-btn--primary', () => this.callbacks.onResumeRun());
+      const menuBtn = this.buildButton(t('Menú Principal'), 'ui-btn--secondary', () => this.callbacks.onQuitToMenu());
+      panel.append(heading, resumeBtn, menuBtn);
       return panel;
     });
 
@@ -88,7 +105,7 @@ export class UiRoot {
       const panel = this.buildPanel('ui-panel--wide');
       const heading = document.createElement('h2');
       heading.className = 'ui-heading';
-      heading.textContent = 'Elige una mejora';
+      heading.textContent = t('Elige una mejora');
       panel.append(heading, this.upgradeGridEl);
       return panel;
     });
@@ -99,9 +116,10 @@ export class UiRoot {
       const panel = this.buildPanel();
       const heading = document.createElement('h2');
       heading.className = 'ui-heading ui-heading--warn';
-      heading.textContent = 'Has caído';
-      const againBtn = this.buildButton('Jugar de nuevo', 'ui-btn--primary', () => this.callbacks.onRestartRun());
-      panel.append(heading, this.gameOverStatsEl, againBtn);
+      heading.textContent = t('Has caído');
+      const againBtn = this.buildButton(t('Jugar de nuevo'), 'ui-btn--primary', () => this.callbacks.onRestartRun());
+      const menuBtn = this.buildButton(t('Menú Principal'), 'ui-btn--secondary', () => this.callbacks.onQuitToMenu());
+      panel.append(heading, this.gameOverStatsEl, againBtn, menuBtn);
       return panel;
     });
 
@@ -111,9 +129,10 @@ export class UiRoot {
       const panel = this.buildPanel();
       const heading = document.createElement('h2');
       heading.className = 'ui-heading ui-heading--victory';
-      heading.textContent = '¡Victoria!';
-      const againBtn = this.buildButton('Jugar de nuevo', 'ui-btn--primary', () => this.callbacks.onRestartRun());
-      panel.append(heading, this.victoryStatsEl, againBtn);
+      heading.textContent = t('¡Victoria!');
+      const againBtn = this.buildButton(t('Jugar de nuevo'), 'ui-btn--primary', () => this.callbacks.onRestartRun());
+      const menuBtn = this.buildButton(t('Menú Principal'), 'ui-btn--secondary', () => this.callbacks.onQuitToMenu());
+      panel.append(heading, this.victoryStatsEl, againBtn, menuBtn);
       return panel;
     });
 
@@ -159,7 +178,7 @@ export class UiRoot {
   showBossBanner(name: string): void {
     const el = this.bossBannerEl;
     if (!el) return;
-    el.textContent = `JEFE: ${name}`;
+    el.textContent = `${t('JEFE:')} ${name}`;
     el.hidden = false;
     // Restart the CSS entrance animation on every call (even re-triggers for
     // a new boss while the banner is already visible) by removing the class,
@@ -226,6 +245,64 @@ export class UiRoot {
     overlay.hidden = true;
   }
 
+  /**
+   * Settings gear in the main menu's top-right corner, matching the
+   * genre convention (Vampire Survivors and similar have a small settings
+   * icon there). Opens a tiny panel with the two supported languages;
+   * picking one persists it and reloads (see `setLang`) so every screen -
+   * including ones not currently mounted - picks up the change consistently.
+   */
+  private buildSettingsIcon(): HTMLElement {
+    const wrap = document.createElement('div');
+    wrap.className = 'ui-settings-wrap';
+
+    const gear = document.createElement('button');
+    gear.type = 'button';
+    gear.className = 'ui-settings-gear';
+    gear.setAttribute('aria-label', t('Configuración'));
+    gear.title = t('Configuración');
+    const icon = document.createElement('img');
+    icon.src = getSettingsIconDataUrl();
+    icon.alt = '';
+    gear.append(icon);
+
+    const langPanel = document.createElement('div');
+    langPanel.className = 'ui-settings-panel';
+    langPanel.hidden = true;
+
+    const langLabel = document.createElement('div');
+    langLabel.className = 'ui-settings-label';
+    langLabel.textContent = t('Idioma');
+    langPanel.append(langLabel);
+
+    const current = getLang();
+    const esBtn = document.createElement('button');
+    esBtn.type = 'button';
+    esBtn.className = `ui-settings-lang${current === 'es' ? ' ui-settings-lang--active' : ''}`;
+    esBtn.textContent = t('Español');
+    esBtn.addEventListener('click', () => setLang('es'));
+
+    const enBtn = document.createElement('button');
+    enBtn.type = 'button';
+    enBtn.className = `ui-settings-lang${current === 'en' ? ' ui-settings-lang--active' : ''}`;
+    enBtn.textContent = t('Inglés');
+    enBtn.addEventListener('click', () => setLang('en'));
+
+    langPanel.append(esBtn, enBtn);
+
+    gear.addEventListener('click', (e) => {
+      e.stopPropagation();
+      langPanel.hidden = !langPanel.hidden;
+    });
+    document.addEventListener('click', () => {
+      langPanel.hidden = true;
+    });
+    langPanel.addEventListener('click', (e) => e.stopPropagation());
+
+    wrap.append(gear, langPanel);
+    return wrap;
+  }
+
   private buildButton(label: string, extraClass: string, onClick: () => void): HTMLButtonElement {
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -237,11 +314,11 @@ export class UiRoot {
 
   private buildStatRows(stats: RunSummaryStats): HTMLElement[] {
     const rows = [
-      this.buildStatRow('Tiempo sobrevivido', formatClock(stats.survivedSeconds)),
-      this.buildStatRow('Muertes', String(stats.kills)),
-      this.buildStatRow('Nivel alcanzado', String(stats.level)),
+      this.buildStatRow(t('Tiempo sobrevivido'), formatClock(stats.survivedSeconds)),
+      this.buildStatRow(t('Muertes'), String(stats.kills)),
+      this.buildStatRow(t('Nivel alcanzado'), String(stats.level)),
     ];
-    if (stats.goldEarned !== undefined) rows.push(this.buildStatRow('Oro ganado', String(stats.goldEarned)));
+    if (stats.goldEarned !== undefined) rows.push(this.buildStatRow(t('Oro ganado'), String(stats.goldEarned)));
     return rows;
   }
 
@@ -274,7 +351,7 @@ export class UiRoot {
 
     const name = document.createElement('div');
     name.className = 'ui-upgrade-name';
-    name.textContent = option.name;
+    name.textContent = t(option.name);
     header.append(name);
 
     card.append(header);
@@ -282,13 +359,13 @@ export class UiRoot {
     if (option.kind) {
       const tag = document.createElement('div');
       tag.className = 'ui-upgrade-tag';
-      tag.textContent = option.kind;
+      tag.textContent = t(UPGRADE_KIND_LABELS[option.kind] ?? option.kind);
       card.append(tag);
     }
 
     const desc = document.createElement('div');
     desc.className = 'ui-upgrade-desc';
-    desc.textContent = option.description;
+    desc.textContent = t(option.description);
     card.append(desc);
 
     card.addEventListener('click', () => {

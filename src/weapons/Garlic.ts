@@ -5,7 +5,9 @@ import { VisualCache } from './WeaponBase';
 const BASE_TICK = 0.4;
 const BASE_DAMAGE = 5;
 const BASE_RADIUS = 2.2;
-const RING_VISUAL_SIZE = BASE_RADIUS * 2.1;
+const RING_COLOR = '#ffcf7a';
+const RING_OPACITY = 0.5;
+const EVOLVED_LIFESTEAL_FRACTION = 0.08; // evolved-only: fraction of total tick damage dealt returned as player healing
 
 /**
  * Passive continuous AoE around the player - no projectile hit-testing (ticks
@@ -25,41 +27,41 @@ export class GarlicWeapon implements Weapon {
 
   private cooldown = 0;
   private readonly hitBuffer: number[] = [];
-  private readonly visualId: number;
   private ringIndex = -1;
 
-  constructor(private readonly visuals: VisualCache, private readonly weaponNumericId: number) {
-    this.visualId = this.visuals.get('aoe_ring_holy', RING_VISUAL_SIZE, [1, 0.85, 0.55], false);
-  }
+  // Neither visuals (no projectile-atlas sprite needed - the ring is a flat
+  // GroundAreaRings mesh) nor weaponNumericId (never tags a projectile) are
+  // used, but both are required by WeaponRosterEntry.create's shared signature.
+  constructor(_visuals: VisualCache, _weaponNumericId: number) {}
 
   update(ctx: WeaponContext): void {
-    if (this.ringIndex === -1 || !ctx.projectiles.alive[this.ringIndex]) {
-      this.ringIndex = ctx.projectiles.spawn(this.visualId, ctx.playerX, ctx.playerZ, 0, 0, {
-        damage: 0,
-        radius: 0,
-        pierce: 0,
-        life: Infinity,
-        weaponId: this.weaponNumericId,
-      });
-    }
-    if (this.ringIndex !== -1) {
-      ctx.projectiles.setPosition(this.ringIndex, ctx.playerX, ctx.playerZ);
-    }
+    // Computed every frame (not just on tick) so the ring visual - and its
+    // hit-test radius below - both track area upgrades/arcanas live instead
+    // of the ring staying a fixed size while the real damage radius grows.
+    const radius = (BASE_RADIUS + 0.05 * (this.level - 1)) * ctx.stats.areaMultiplier;
+
+    if (this.ringIndex === -1) this.ringIndex = ctx.groundRings.acquire();
+    ctx.groundRings.set(this.ringIndex, ctx.playerX, ctx.playerZ, radius, RING_COLOR, RING_OPACITY);
 
     this.cooldown -= ctx.dt;
     if (this.cooldown > 0) return;
     this.cooldown = Math.max(0.2, BASE_TICK - 0.01 * (this.level - 1)) * ctx.stats.cooldownMultiplier;
 
-    const radius = (BASE_RADIUS + 0.05 * (this.level - 1)) * ctx.stats.areaMultiplier;
     const count = ctx.enemies.queryRadius(ctx.playerX, ctx.playerZ, radius, this.hitBuffer);
     if (count === 0) return;
 
     const damagePerTick = (BASE_DAMAGE + 0.6 * (this.level - 1)) * (this.evolved ? 2 : 1) * ctx.stats.damageMultiplier;
+    let totalDealt = 0;
     for (let i = 0; i < count; i++) {
       const enemyIndex = this.hitBuffer[i];
       const crit = ctx.rng() < ctx.stats.critChance;
       const dmg = damagePerTick * (crit ? ctx.stats.critMultiplier : 1);
       ctx.enemies.damage(enemyIndex, dmg, crit);
+      totalDealt += dmg;
+    }
+    if (this.evolved && totalDealt > 0) {
+      // Evolved aura drains life from everything it burns, healing the player as it ticks.
+      ctx.stats.health = Math.min(ctx.stats.maxHealth, ctx.stats.health + totalDealt * EVOLVED_LIFESTEAL_FRACTION);
     }
     gameEvents.emit('weaponFired', { weaponId: this.id, x: ctx.playerX, z: ctx.playerZ });
   }

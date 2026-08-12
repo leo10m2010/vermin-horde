@@ -1,10 +1,12 @@
 import type { EnemyManager } from '../entities/EnemyManager';
 import type { ProjectileManager } from '../entities/ProjectileManager';
 import type { PlayerStats } from '../game/GameState';
+import type { GroundAreaRings } from '../vfx/GroundAreaRings';
 
 export interface WeaponContext {
   enemies: EnemyManager;
   projectiles: ProjectileManager;
+  groundRings: GroundAreaRings;
   stats: PlayerStats;
   playerX: number;
   playerZ: number;

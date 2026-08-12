@@ -1,4 +1,5 @@
 import type { MetaProgression, PermanentUpgradeDef } from '../game/MetaProgression';
+import { t } from '../i18n';
 
 const STYLE_ID = 'shop-styles';
 const ICON_SIZE = 30;
@@ -319,7 +320,7 @@ export class Shop {
     header.className = 'shop-header';
     const title = document.createElement('h2');
     title.className = 'shop-title';
-    title.textContent = 'Mercader Errante';
+    title.textContent = t('Mercader Errante');
     const goldBadge = document.createElement('div');
     goldBadge.className = 'shop-gold';
     const goldIcon = document.createElement('span');
@@ -334,7 +335,7 @@ export class Shop {
     const closeBtn = document.createElement('button');
     closeBtn.type = 'button';
     closeBtn.className = 'shop-close-btn';
-    closeBtn.textContent = 'Cerrar';
+    closeBtn.textContent = t('Cerrar');
     closeBtn.addEventListener('click', () => {
       this.hide();
       this.callbacks.onClose();
@@ -375,27 +376,27 @@ export class Shop {
     icon.alt = '';
     const name = document.createElement('div');
     name.className = 'shop-card-name';
-    name.textContent = def.name;
+    name.textContent = t(def.name);
     const levelEl = document.createElement('div');
     levelEl.className = 'shop-card-level';
-    levelEl.textContent = `Nv. ${level}/${def.maxLevel}`;
+    levelEl.textContent = `${t('Nv.')} ${level}/${def.maxLevel}`;
     head.append(icon, name, levelEl);
 
     const desc = document.createElement('div');
     desc.className = 'shop-card-desc';
-    desc.textContent = def.description;
+    desc.textContent = t(def.description);
 
     const buyRow = document.createElement('div');
     buyRow.className = 'shop-buy-row';
     const cost = maxed ? 0 : def.costPerLevel(level);
     const costEl = document.createElement('div');
     costEl.className = 'shop-cost';
-    costEl.textContent = maxed ? 'MAX' : `${cost} oro`;
+    costEl.textContent = maxed ? t('MAX') : `${cost} ${t('oro')}`;
 
     const buyBtn = document.createElement('button');
     buyBtn.type = 'button';
     buyBtn.className = 'shop-buy-btn';
-    buyBtn.textContent = maxed ? 'Máximo' : 'Comprar';
+    buyBtn.textContent = maxed ? t('Máximo') : t('Comprar');
     const affordable = !maxed && this.meta.gold >= cost;
     buyBtn.disabled = maxed || !affordable;
     buyBtn.addEventListener('click', () => {

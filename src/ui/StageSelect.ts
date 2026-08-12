@@ -1,4 +1,5 @@
 import type { StageDef } from '../game/Stages';
+import { t } from '../i18n';
 
 /**
  * Stage-select overlay, mounted into `#ui-root` alongside (but independent
@@ -17,6 +18,7 @@ export class StageSelect {
   constructor(
     private readonly root: HTMLElement,
     private readonly onChosen: (stage: StageDef) => void,
+    private readonly onBack?: () => void,
   ) {
     StageSelect.injectStyle();
 
@@ -27,18 +29,24 @@ export class StageSelect {
     const panel = document.createElement('div');
     panel.className = 'stagesel-panel';
 
+    const backBtn = document.createElement('button');
+    backBtn.type = 'button';
+    backBtn.className = 'stagesel-back';
+    backBtn.textContent = t('← Volver');
+    backBtn.addEventListener('click', () => this.onBack?.());
+
     const heading = document.createElement('h2');
     heading.className = 'stagesel-heading';
-    heading.textContent = 'Elige un escenario';
+    heading.textContent = t('Elige un escenario');
 
     const subtitle = document.createElement('p');
     subtitle.className = 'stagesel-subtitle';
-    subtitle.textContent = 'Cada lugar esconde su propio terror.';
+    subtitle.textContent = t('Cada lugar esconde su propio terror.');
 
     this.gridEl = document.createElement('div');
     this.gridEl.className = 'stagesel-grid';
 
-    panel.append(heading, subtitle, this.gridEl);
+    panel.append(backBtn, heading, subtitle, this.gridEl);
     this.overlayEl.append(panel);
     this.root.append(this.overlayEl);
   }
@@ -66,11 +74,11 @@ export class StageSelect {
 
     const name = document.createElement('div');
     name.className = 'stagesel-name';
-    name.textContent = stage.name;
+    name.textContent = t(stage.name);
 
     const desc = document.createElement('div');
     desc.className = 'stagesel-desc';
-    desc.textContent = stage.description;
+    desc.textContent = t(stage.description);
 
     card.append(swatch, name, desc);
     card.addEventListener('click', () => this.onChosen(stage));
@@ -171,6 +179,28 @@ const STAGE_SELECT_CSS = `
     inset 0 0 40px rgba(0, 0, 0, 0.5),
     0 18px 60px rgba(0, 0, 0, 0.65);
   text-align: center;
+}
+
+.stagesel-back {
+  appearance: none;
+  align-self: flex-start;
+  margin-bottom: -6px;
+  padding: 6px 12px;
+  background: rgba(232, 221, 199, 0.06);
+  border: 1px solid rgba(232, 221, 199, 0.3);
+  border-radius: 4px;
+  color: #e8ddc7;
+  font-family: Georgia, 'Times New Roman', 'Palatino Linotype', serif;
+  font-size: 0.78rem;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+
+.stagesel-back:hover,
+.stagesel-back:focus-visible {
+  border-color: #e8c468;
+  background: rgba(232, 196, 104, 0.12);
 }
 
 .stagesel-heading {

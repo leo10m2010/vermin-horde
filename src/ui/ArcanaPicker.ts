@@ -1,4 +1,5 @@
 import type { ArcanaDef } from '../systems/ArcanaSystem';
+import { t } from '../i18n';
 
 const STYLE_ID = 'arcana-picker-styles';
 const ICON_SIZE = 40;
@@ -219,11 +220,11 @@ export class ArcanaPicker {
 
     const heading = document.createElement('h2');
     heading.className = 'arcana-heading';
-    heading.textContent = 'Arcano Despertado';
+    heading.textContent = t('Arcano Despertado');
 
     const sub = document.createElement('p');
     sub.className = 'arcana-sub';
-    sub.textContent = 'Un poder raro se manifiesta. Elige uno.';
+    sub.textContent = t('Un poder raro se manifiesta. Elige uno.');
 
     this.gridEl = document.createElement('div');
     this.gridEl.className = 'arcana-grid';
@@ -256,12 +257,12 @@ export class ArcanaPicker {
     icon.alt = '';
     const name = document.createElement('div');
     name.className = 'arcana-card-name';
-    name.textContent = arcana.name;
+    name.textContent = t(arcana.name);
     head.append(icon, name);
 
     const desc = document.createElement('div');
     desc.className = 'arcana-card-desc';
-    desc.textContent = arcana.description;
+    desc.textContent = t(arcana.description);
 
     card.append(head, desc);
     card.addEventListener('click', () => {

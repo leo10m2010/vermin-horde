@@ -5,6 +5,8 @@ const RANGE = 12;
 const BASE_COOLDOWN = 0.55;
 const BASE_DAMAGE = 7;
 const BASE_SPEED = 11;
+const CHAIN_RADIUS = 3.5; // evolved-only: search radius for a secondary arc target around the impact point
+const CHAIN_DAMAGE_FRACTION = 0.6;
 
 /** Starting weapon: auto-targets the nearest enemy(ies) in range and fires straight bolts. */
 export class MagicWandWeapon implements Weapon {
@@ -19,6 +21,7 @@ export class MagicWandWeapon implements Weapon {
   private readonly visualId: number;
   private cooldown = 0;
   private readonly targetBuffer: number[] = [];
+  private readonly chainBuffer: number[] = [];
 
   constructor(visuals: VisualCache, private readonly weaponNumericId: number) {
     this.visualId = visuals.get('bolt_basic', 0.55, [1, 1, 1], true);
@@ -26,7 +29,9 @@ export class MagicWandWeapon implements Weapon {
 
   private projectileCount(): number {
     const base = 1 + Math.floor((this.level - 1) / 3);
-    return this.evolved ? base + 2 : base;
+    // Balance: was +2 - stacked with the evolved cooldown halving and the
+    // on-hit chain below for a ~4x+ DPS jump on evolve vs. ~1.7-2x for peers.
+    return this.evolved ? base + 1 : base;
   }
 
   private pierce(): number {
@@ -42,7 +47,11 @@ export class MagicWandWeapon implements Weapon {
     const found = findNearestEnemies(ctx, ctx.playerX, ctx.playerZ, RANGE, count, this.targetBuffer);
     if (found === 0) return;
 
-    this.cooldown = Math.max(0.18, BASE_COOLDOWN - 0.03 * (this.level - 1)) * ctx.stats.cooldownMultiplier;
+    // Evolved cast rate is faster than the base weapon's steady gap between casts.
+    // Balance: was 0.5 (a flat cooldown halving) - combined with the extra
+    // projectile and the on-hit chain that's evolved-only, this alone pushed
+    // the evolution to ~4x+ total DPS vs. the ~1.7-2x other weapons get.
+    this.cooldown = Math.max(0.18, BASE_COOLDOWN - 0.03 * (this.level - 1)) * (this.evolved ? 0.75 : 1) * ctx.stats.cooldownMultiplier;
     const damage = (BASE_DAMAGE + 1.4 * (this.level - 1)) * (this.evolved ? 1.3 : 1) * ctx.stats.damageMultiplier;
     const speed = BASE_SPEED * ctx.stats.projectileSpeedMultiplier;
     const pierce = this.pierce();
@@ -59,6 +68,22 @@ export class MagicWandWeapon implements Weapon {
         life: 2.2,
         weaponId: this.weaponNumericId,
       });
+    }
+  }
+
+  /**
+   * Evolved-only: bolts arc to one extra nearby enemy on impact instead of
+   * only ever hitting what they struck - the wand "never loses track" of the
+   * crowd around its target.
+   */
+  onProjectileHit(ctx: WeaponContext, hitX: number, hitZ: number, directDamage: number, hitEnemyIndex: number): void {
+    if (!this.evolved) return;
+    const found = findNearestEnemies(ctx, hitX, hitZ, CHAIN_RADIUS, 2, this.chainBuffer);
+    for (let i = 0; i < found; i++) {
+      const idx = this.chainBuffer[i];
+      if (idx === hitEnemyIndex) continue;
+      ctx.enemies.damage(idx, directDamage * CHAIN_DAMAGE_FRACTION, false);
+      break;
     }
   }
 

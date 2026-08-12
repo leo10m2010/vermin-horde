@@ -1,5 +1,6 @@
 import type { CharacterDef } from '../game/Characters';
 import { drawCharacterPortrait } from '../render/SpriteLibraryCharacters';
+import { t } from '../i18n';
 
 const STYLE_ID = 'character-select-styles';
 const PORTRAIT_SIZE = 96;
@@ -150,6 +151,26 @@ function injectStyles(): void {
       line-height: 1.35;
       opacity: 0.85;
     }
+    .cs-back {
+      appearance: none;
+      align-self: flex-start;
+      margin-bottom: -6px;
+      padding: 6px 12px;
+      background: rgba(242, 240, 230, 0.06);
+      border: 1px solid rgba(242, 240, 230, 0.28);
+      border-radius: 6px;
+      color: #f2f0e6;
+      font-family: inherit;
+      font-size: 0.78rem;
+      letter-spacing: 0.03em;
+      cursor: pointer;
+      transition: border-color 0.12s ease, background 0.12s ease;
+    }
+    .cs-back:hover,
+    .cs-back:focus-visible {
+      border-color: #59e0ff;
+      background: rgba(89, 224, 255, 0.1);
+    }
   `;
   document.head.appendChild(style);
 }
@@ -164,7 +185,11 @@ export class CharacterSelect {
   private readonly overlay: HTMLElement;
   private readonly gridEl: HTMLElement;
 
-  constructor(root: HTMLElement, private readonly onChosen: (character: CharacterDef) => void) {
+  constructor(
+    root: HTMLElement,
+    private readonly onChosen: (character: CharacterDef) => void,
+    private readonly onBack?: () => void,
+  ) {
     injectStyles();
 
     this.overlay = document.createElement('div');
@@ -174,18 +199,24 @@ export class CharacterSelect {
     const panel = document.createElement('div');
     panel.className = 'cs-panel';
 
+    const backBtn = document.createElement('button');
+    backBtn.type = 'button';
+    backBtn.className = 'cs-back';
+    backBtn.textContent = t('← Volver');
+    backBtn.addEventListener('click', () => this.onBack?.());
+
     const heading = document.createElement('h2');
     heading.className = 'cs-heading';
-    heading.textContent = 'Elige tu personaje';
+    heading.textContent = t('Elige tu personaje');
 
     const subtitle = document.createElement('p');
     subtitle.className = 'cs-subtitle';
-    subtitle.textContent = 'Cada personaje inicia con un arma distinta y un rasgo único para toda la partida.';
+    subtitle.textContent = t('Cada personaje inicia con un arma distinta y un rasgo único para toda la partida.');
 
     this.gridEl = document.createElement('div');
     this.gridEl.className = 'cs-grid';
 
-    panel.append(heading, subtitle, this.gridEl);
+    panel.append(backBtn, heading, subtitle, this.gridEl);
     this.overlay.append(panel);
     root.append(this.overlay);
   }
@@ -220,15 +251,15 @@ export class CharacterSelect {
 
     const title = document.createElement('div');
     title.className = 'cs-title';
-    title.textContent = character.title;
+    title.textContent = t(character.title);
 
     const weapon = document.createElement('div');
     weapon.className = 'cs-weapon';
-    weapon.textContent = weaponDisplayName(character.startWeaponId);
+    weapon.textContent = t(weaponDisplayName(character.startWeaponId));
 
     const trait = document.createElement('div');
     trait.className = 'cs-trait';
-    trait.textContent = character.traitDescription;
+    trait.textContent = t(character.traitDescription);
 
     card.append(canvas, name, title, weapon, trait);
     card.addEventListener('click', () => this.onChosen(character));

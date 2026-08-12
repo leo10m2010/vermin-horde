@@ -46,8 +46,8 @@ interface ThreeGameTestHooks {
   setReducedMotion(enabled: boolean): void;
   /** Hide debug UI before capturing. */
   hideDebugUi(hidden: boolean): void;
-  /** QA/perf helper: force-spawn N enemies around the player (stress testing). */
-  spawnEnemies(count: number): void;
+  /** QA/perf helper: force-spawn N enemies around the player (stress testing). Defaults to grunt if typeName is omitted/unknown. */
+  spawnEnemies(count: number, typeName?: string): void;
   /** QA helper: remove every active enemy. */
   clearEnemies(): void;
   /** QA helper: grant enough XP to trigger N level-ups immediately. */
@@ -56,6 +56,14 @@ interface ThreeGameTestHooks {
   setGodMode(enabled: boolean): void;
   /** QA helper: force-spawn the next scheduled boss immediately. */
   forceBoss(): void;
+  /** QA helper: directly add a specific weapon by id, bypassing the random upgrade roll. Returns false if already owned/slots full/unknown id. */
+  addWeapon(id: string): boolean;
+  /** QA helper: directly level up (and auto-evolve if maxed + passive satisfied) a specific owned weapon by id. */
+  levelUpWeapon(id: string): boolean;
+  /** QA helper: directly grant a stack of a specific passive by id (for testing evolutionRequiresPassive gates). */
+  grantPassive(id: string): void;
+  /** QA helper: skip straight to the next arcana milestone offer instead of waiting out the real 5-minute-survived gate. */
+  forceArcana(): void;
 }
 
 interface Window {

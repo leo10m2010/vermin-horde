@@ -10,6 +10,7 @@ import { registerCoreSprites } from '../render/SpriteLibrary';
 import { registerCharacterSprites } from '../render/SpriteLibraryCharacters';
 import { registerWeapon2Sprites } from '../render/SpriteLibraryWeapons2';
 import { createGroundMesh } from '../render/WorldGround';
+import { StageDecor } from '../render/StageDecor';
 import { Player } from '../entities/Player';
 import { EnemyManager } from '../entities/EnemyManager';
 import { ProjectileManager } from '../entities/ProjectileManager';
@@ -23,13 +24,15 @@ import { registerEnemyTypes, WaveDirector, type EnemyTypeIds } from '../enemies'
 import { WeaponSystem } from '../weapons/WeaponSystem';
 import { UpgradeSystem, type UpgradeOption } from '../systems/UpgradeSystem';
 import { ArcanaSystem, type ArcanaDef } from '../systems/ArcanaSystem';
-import { ParticleSystem, DamageNumbers, BossTelegraphRings, ProjectileTrails, GemCollectEffect, LevelUpEffects, EliteAura } from '../vfx';
+import { TreasureSystem } from '../systems/TreasureSystem';
+import { ParticleSystem, DamageNumbers, BossTelegraphRings, ProjectileTrails, GemCollectEffect, LevelUpEffects, EliteAura, GroundAreaRings } from '../vfx';
 import { UiRoot, type UpgradeOptionLike } from '../ui/UiRoot';
 import { CharacterSelect } from '../ui/CharacterSelect';
 import { StageSelect } from '../ui/StageSelect';
 import { Shop } from '../ui/Shop';
 import { ArcanaPicker } from '../ui/ArcanaPicker';
 import { AudioManager } from '../audio/AudioManager';
+import { t } from '../i18n';
 
 const VICTORY_SECONDS = DIFFICULTY.rampSeconds; // survive the full escalation arc to win
 const PLAYER_START_INVULN = 0.8;
@@ -51,6 +54,8 @@ export class Game {
   private readonly weaponSystem: WeaponSystem;
   private readonly upgradeSystem: UpgradeSystem;
   private readonly arcanaSystem: ArcanaSystem;
+  private readonly treasures: TreasureSystem;
+  private readonly stageDecor = new StageDecor();
   private readonly metaProgression = new MetaProgression();
   private readonly particles = new ParticleSystem();
   private readonly damageNumbers = new DamageNumbers();
@@ -59,6 +64,8 @@ export class Game {
   private readonly gemCollectEffect = new GemCollectEffect();
   private readonly levelUpEffects = new LevelUpEffects();
   private readonly eliteAura = new EliteAura();
+  /** Flat ground rings for weapon AoE indicators (Garlic's aura, Hex Flask's zones) - capacity covers Garlic's 1 permanent ring plus several concurrent Hex Flask zones with margin. */
+  private readonly groundRings = new GroundAreaRings(20, 'vfx-weapon-ground-rings');
   private readonly audio = new AudioManager();
   private readonly ui: UiRoot;
   private readonly characterSelect: CharacterSelect;
@@ -106,12 +113,15 @@ export class Game {
     this.gems.batch.setTexture(spriteAtlas.texture);
     this.particles.batch.setTexture(spriteAtlas.texture);
     this.projectileTrails.batch.setTexture(spriteAtlas.texture);
+    this.stageDecor.batch.setTexture(spriteAtlas.texture);
 
     this.enemyTypes = registerEnemyTypes(this.enemies);
     this.waveDirector = new WaveDirector(this.enemies, this.enemyTypes, () => this.rng());
-    this.weaponSystem = new WeaponSystem(this.enemies, this.projectiles, () => this.rng());
+    this.weaponSystem = new WeaponSystem(this.enemies, this.projectiles, this.groundRings, () => this.rng());
     this.upgradeSystem = new UpgradeSystem(this.weaponSystem);
     this.arcanaSystem = new ArcanaSystem(() => this.rng());
+    this.treasures = new TreasureSystem(this.upgradeSystem, () => this.rng());
+    this.treasures.batch.setTexture(spriteAtlas.texture);
 
     const uiRootEl = this.getElement('#ui-root');
     this.ui = new UiRoot(uiRootEl, {
@@ -120,9 +130,18 @@ export class Game {
       onRestartRun: () => this.beginRun(),
       onUpgradeChosen: (option) => this.handleUpgradeChosen(option),
       onOpenShop: () => this.openShop(),
+      onQuitToMenu: () => this.quitToMenu(),
     });
-    this.characterSelect = new CharacterSelect(uiRootEl, (character) => this.onCharacterChosen(character));
-    this.stageSelect = new StageSelect(uiRootEl, (stage) => this.onStageChosen(stage));
+    this.characterSelect = new CharacterSelect(
+      uiRootEl,
+      (character) => this.onCharacterChosen(character),
+      () => this.backToMainMenu(),
+    );
+    this.stageSelect = new StageSelect(
+      uiRootEl,
+      (stage) => this.onStageChosen(stage),
+      () => this.backToCharacterSelect(),
+    );
     this.shop = new Shop(uiRootEl, this.metaProgression, { onClose: () => this.closeShop() });
     this.arcanaPicker = new ArcanaPicker(uiRootEl, (arcana) => this.onArcanaChosen(arcana));
 
@@ -131,8 +150,17 @@ export class Game {
     resizeRenderer(this.renderer, this.camera, CAMERA.viewHeight);
     this.installTestHooks();
     this.bindEvents();
+    this.applyStaticHudTranslations();
     this.ui.showMainMenu();
     this.publishDiagnostics();
+  }
+
+  /** index.html's HUD labels ("Lv", "muertes") are static markup, not JS-rendered - translate them once at boot instead of on every updateHud() call. */
+  private applyStaticHudTranslations(): void {
+    const levelLabel = document.getElementById('hud-level-label');
+    if (levelLabel) levelLabel.textContent = t('Lv');
+    const killsLabel = document.getElementById('hud-kills-label');
+    if (killsLabel) killsLabel.textContent = t('muertes');
   }
 
   start(): void {
@@ -146,6 +174,8 @@ export class Game {
     this.enemies.dispose();
     this.projectiles.dispose();
     this.gems.dispose();
+    this.treasures.dispose();
+    this.stageDecor.dispose();
     this.particles.dispose();
     this.damageNumbers.dispose();
     this.bossTelegraphs.dispose();
@@ -153,6 +183,7 @@ export class Game {
     this.gemCollectEffect.dispose();
     this.levelUpEffects.dispose();
     this.eliteAura.dispose();
+    this.groundRings.dispose();
     this.audio.dispose();
     this.renderer.dispose();
     gameEvents.clear();
@@ -164,10 +195,12 @@ export class Game {
     this.scene.background = new THREE.Color('#0c0f0a');
     this.groundMesh = createGroundMesh();
     this.scene.add(this.groundMesh);
+    this.scene.add(this.stageDecor.batch.mesh);
     this.scene.add(this.player.batch.mesh);
     this.scene.add(this.enemies.batch.mesh);
     this.scene.add(this.projectiles.batch.mesh);
     this.scene.add(this.gems.batch.mesh);
+    this.scene.add(this.treasures.batch.mesh);
     this.scene.add(this.particles.object3D);
     this.scene.add(this.damageNumbers.object3D);
     this.scene.add(this.bossTelegraphs.object3D);
@@ -175,6 +208,7 @@ export class Game {
     this.scene.add(this.gemCollectEffect.object3D);
     this.scene.add(this.levelUpEffects.object3D);
     this.scene.add(this.eliteAura.object3D);
+    this.scene.add(this.groundRings.object3D);
   }
 
   private applyStage(stage: StageDef): void {
@@ -186,6 +220,7 @@ export class Game {
     this.groundMesh = createGroundMesh(stage);
     this.scene.add(this.groundMesh);
     this.scene.background = new THREE.Color(stage.fogTint ?? '#0c0f0a');
+    this.stageDecor.populate(stage, () => this.rng());
   }
 
   // --- pre-run flow (menu -> character select -> stage select -> run) -----
@@ -207,6 +242,16 @@ export class Game {
     this.beginRun();
   }
 
+  private backToMainMenu(): void {
+    this.characterSelect.hide();
+    this.ui.showMainMenu();
+  }
+
+  private backToCharacterSelect(): void {
+    this.stageSelect.hide();
+    this.characterSelect.show(CHARACTERS);
+  }
+
   private openShop(): void {
     this.ui.hideMainMenu();
     this.shop.show();
@@ -226,6 +271,8 @@ export class Game {
     this.enemies.clear();
     this.projectiles.clear();
     this.gems.clear();
+    this.treasures.clear();
+    this.groundRings.clear();
     this.weaponSystem.reset(this.selectedCharacter.startWeaponId);
     this.waveDirector.reset();
     this.arcanaSystem.reset();
@@ -269,6 +316,18 @@ export class Game {
     gameEvents.emit('runPaused', { paused: false });
   }
 
+  /** Bail out of the current run (from pause, game-over, or victory) straight back to the main menu, discarding run progress. */
+  private quitToMenu(): void {
+    this.state.phase = 'menu';
+    this.enemies.clear();
+    this.projectiles.clear();
+    this.gems.clear();
+    this.treasures.clear();
+    this.groundRings.clear();
+    this.ui.hideAll();
+    this.ui.showMainMenu();
+  }
+
   private triggerGameOver(): void {
     if (this.state.phase === 'gameover') return;
     this.state.phase = 'gameover';
@@ -299,7 +358,7 @@ export class Game {
     if (this.pendingLevelUps <= 0) return;
     this.pendingLevelUps -= 1;
     this.state.phase = 'levelup';
-    const options = this.upgradeSystem.rollChoices(() => this.rng(), this.state.ownedPassives);
+    const options = this.upgradeSystem.rollChoices(() => this.rng(), this.state.ownedPassives, 3, this.state.stats.luck);
     this.ui.showUpgradePicker(options);
   }
 
@@ -352,7 +411,11 @@ export class Game {
         this.state.stats.health = Math.min(this.state.stats.maxHealth, this.state.stats.health + this.state.stats.regenPerSecond * delta);
       }
 
-      this.waveDirector.update(animDelta, this.state.run.elapsed, this.player.position.x, this.player.position.z);
+      // Cache luck before any enemy can die this frame, so an elite/boss kill
+      // (inside enemies.update() below) rolls its Gilded Cache chance against
+      // the current build's luck rather than last frame's.
+      this.treasures.setLuck(this.state.stats.luck);
+      this.waveDirector.update(animDelta, this.state.run.elapsed, this.player.position.x, this.player.position.z, this.state.stats.luck);
 
       const { contactDamage } = this.enemies.update(animDelta, this.player.position.x, this.player.position.z);
 
@@ -369,6 +432,15 @@ export class Game {
       this.projectiles.update(animDelta);
 
       const collectRadius = 0.7;
+      this.treasures.update(
+        animDelta,
+        this.player.position.x,
+        this.player.position.z,
+        this.state.stats.magnetRadius,
+        collectRadius,
+        this.state.ownedPassives,
+        this.state.stats,
+      );
       const xpGained = this.gems.update(animDelta, elapsed, this.player.position.x, this.player.position.z, this.state.stats.magnetRadius, collectRadius);
       if (xpGained > 0) {
         const levels = this.state.gainXp(xpGained);
@@ -380,6 +452,8 @@ export class Game {
       }
 
       if (contactDamage > 0) this.applyPlayerDamage(contactDamage);
+
+      this.arcanaSystem.tickActive(this.state.stats, this.state.run.elapsed);
 
       if (this.state.phase === 'playing') {
         const arcanaOffer = this.arcanaSystem.checkMilestone(this.state.run.elapsed);
@@ -457,6 +531,11 @@ export class Game {
 
   /** Quiet top-center toast announcing each survived minute (difficulty ramp feedback). Self-contained: no styles.css/UiRoot.ts changes needed. */
   private showMinuteToast(minute: number): void {
+    this.showToast(`${t('MINUTO')} ${minute} — ${t('la horda crece')}`);
+  }
+
+  /** Generic reusable version of the toast above - same box, any message. */
+  private showToast(text: string): void {
     if (!this.minuteToastEl) {
       const el = document.createElement('div');
       el.style.cssText =
@@ -470,7 +549,7 @@ export class Game {
       this.minuteToastEl = el;
     }
     const el = this.minuteToastEl;
-    el.textContent = `MINUTO ${minute} — la horda crece`;
+    el.textContent = text;
     el.style.opacity = '1';
     if (this.minuteToastTimer !== undefined) window.clearTimeout(this.minuteToastTimer);
     this.minuteToastTimer = window.setTimeout(() => {
@@ -497,6 +576,20 @@ export class Game {
       this.ui.showBossBanner(e.name);
       this.particles.spawnBurst(e.x, e.z, { count: 60, colorHex: '#ff8a3d', speed: 9, life: 1.1 });
       this.cameraRig.shake(0.3, 0.4);
+    });
+    // Per-level character scaling (see CharacterDef.onLevelUp) - a no-op for
+    // characters that only use the one-time applyTrait() bonus.
+    gameEvents.on('levelUp', (e) => {
+      this.selectedCharacter.onLevelUp?.(this.state.stats, e.level);
+    });
+    gameEvents.on('treasureSpawned', (e) => {
+      this.particles.spawnBurst(e.x, e.z, { count: 18, colorHex: '#e8c468', speed: 3, life: 0.6 });
+    });
+    gameEvents.on('treasureOpened', (e) => {
+      const pickList = e.rewardNames.length > 0 ? e.rewardNames.join(', ') : t('oro');
+      this.showToast(`${t('COFRE DORADO')} — ${pickList} (+${e.bonusGold} ${t('oro')})`);
+      this.particles.spawnBurst(e.x, e.z, { count: 80, colorHex: '#ffe066', speed: 8.5, life: 1.1 });
+      this.cameraRig.shake(0.22, 0.3);
     });
     // Legible difficulty ramp: a quiet corner toast each survived minute so
     // the escalating horde reads as deliberate pacing, not silent RNG.
@@ -545,11 +638,12 @@ export class Game {
       hideDebugUi: () => {
         /* no debug GUI yet */
       },
-      spawnEnemies: (count: number) => {
+      spawnEnemies: (count: number, typeName?: keyof EnemyTypeIds) => {
+        const typeId = typeName && typeName in this.enemyTypes ? this.enemyTypes[typeName] : this.enemyTypes.grunt;
         for (let i = 0; i < count; i++) {
           const angle = this.rng() * Math.PI * 2;
           const dist = 5 + this.rng() * 20;
-          this.enemies.spawn(this.enemyTypes.grunt, this.player.position.x + Math.cos(angle) * dist, this.player.position.z + Math.sin(angle) * dist);
+          this.enemies.spawn(typeId, this.player.position.x + Math.cos(angle) * dist, this.player.position.z + Math.sin(angle) * dist);
         }
       },
       clearEnemies: () => this.enemies.clear(),
@@ -567,6 +661,20 @@ export class Game {
         this.godMode = enabled;
       },
       forceBoss: () => this.waveDirector.forceBoss(),
+      // QA helper: skip straight to the next arcana milestone offer instead
+      // of waiting out the real 5-minute-survived gate.
+      forceArcana: () => {
+        const offer = this.arcanaSystem.checkMilestone(999_999);
+        if (offer) this.arcanaPicker.show(offer);
+      },
+      // QA helper: directly add/level/evolve a specific weapon by id, bypassing
+      // the random upgrade-card roll - lets automated tests exercise every
+      // weapon deterministically instead of hoping it comes up in a shuffle.
+      addWeapon: (id: string) => this.weaponSystem.addWeapon(id),
+      levelUpWeapon: (id: string) => this.weaponSystem.levelUp(id),
+      grantPassive: (id: string) => {
+        this.state.ownedPassives.set(id, (this.state.ownedPassives.get(id) ?? 0) + 1);
+      },
     };
   }
 

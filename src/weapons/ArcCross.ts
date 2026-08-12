@@ -23,6 +23,8 @@ interface FlightState {
   totalLife: number;
   orbitAngle: number;
   orbitStart: number;
+  /** Enemy index locked on at launch, used by the evolved form's outbound homing. */
+  targetIndex: number;
 }
 
 /**
@@ -86,6 +88,7 @@ export class ArcCrossWeapon implements Weapon {
       totalLife,
       orbitAngle: 0,
       orbitStart: 0,
+      targetIndex: target,
     });
   }
 
@@ -104,6 +107,17 @@ export class ArcCrossWeapon implements Weapon {
         const traveledSq = (px - state.spawnX) ** 2 + (pz - state.spawnZ) ** 2;
         if (age > state.totalLife * RETURN_TRIGGER_FRACTION || traveledSq > MAX_TRAVEL_RANGE * MAX_TRAVEL_RANGE) {
           state.phase = 'return';
+        } else if (this.evolved && ctx.enemies.alive[state.targetIndex]) {
+          // Evolved cross keeps steering toward its original target on the way out instead of flying a straight line - it never "loses" what it launched at.
+          const dx = ctx.enemies.posX[state.targetIndex] - px;
+          const dz = ctx.enemies.posZ[state.targetIndex] - pz;
+          const dist = Math.sqrt(dx * dx + dz * dz) || 1;
+          const desiredVX = (dx / dist) * speed;
+          const desiredVZ = (dz / dist) * speed;
+          const curVX = ctx.projectiles.velX[index];
+          const curVZ = ctx.projectiles.velZ[index];
+          const turn = Math.min(1, TURN_RATE * ctx.dt);
+          ctx.projectiles.setVelocity(index, curVX + (desiredVX - curVX) * turn, curVZ + (desiredVZ - curVZ) * turn);
         }
       }
 
