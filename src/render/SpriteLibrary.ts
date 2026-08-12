@@ -2,6 +2,7 @@ import { spriteAtlas } from './SpriteAtlas';
 import { drawPixelGrid, drawSoftCircle, makeGrid, fillRect, toRows } from './PixelDraw';
 import { registerEnemyRosterSprites } from './SpriteLibraryEnemyArt';
 import { registerBossRosterSprites } from './SpriteLibraryBossArt';
+import { registerPowerSprites } from './SpriteLibraryPowerArt';
 
 const GW = 16;
 const GH = 18;
@@ -222,68 +223,11 @@ export function registerProjectileSprites(): void {
 }
 
 // ---------------------------------------------------------------------------
-// Weapon & projectile visuals.
+// Shared AoE ring decal. The weapon projectile sprites (axe, knife, fireball,
+// orbiter blade) that used to live here were re-authored with outlines,
+// shading and animation in SpriteLibraryPowerArt.ts during the power art pass.
 // ---------------------------------------------------------------------------
 export function registerWeaponSprites(): void {
-  // spinning axe head - grey metal + brown handle accent
-  const axeGrid = makeGrid(10, 10);
-  fillRect(axeGrid, 4, 0, 5, 9, 'w');
-  fillRect(axeGrid, 0, 2, 4, 2, 'm');
-  fillRect(axeGrid, 0, 3, 3, 3, 'm');
-  fillRect(axeGrid, 0, 4, 2, 4, 'm');
-  fillRect(axeGrid, 5, 2, 9, 2, 'm');
-  fillRect(axeGrid, 6, 3, 9, 3, 'm');
-  fillRect(axeGrid, 7, 4, 9, 4, 'm');
-  fillRect(axeGrid, 3, 1, 6, 1, 'h');
-  const axePalette = { w: '#7a4a2a', m: '#c8ccd4', h: '#eef1f5' };
-  spriteAtlas.registerClip('proj_axe', 1, true, [
-    { key: 'proj_axe_0', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(axeGrid), axePalette) },
-  ]);
-
-  // slim fast dagger - silver/white
-  const knifeGrid = makeGrid(6, 14);
-  fillRect(knifeGrid, 2, 0, 3, 1, 't');
-  fillRect(knifeGrid, 1, 1, 4, 7, 'b');
-  fillRect(knifeGrid, 2, 8, 3, 9, 'd');
-  fillRect(knifeGrid, 2, 10, 3, 13, 'h');
-  const knifePalette = { t: '#fefefe', b: '#d8dde6', d: '#3a3a3a', h: '#5a3a20' };
-  spriteAtlas.registerClip('proj_knife', 1, true, [
-    { key: 'proj_knife_0', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(knifeGrid), knifePalette) },
-  ]);
-
-  // warm glowing fireball - radial soft circle over a bright core
-  spriteAtlas.registerClip('proj_fireball', 8, true, [
-    {
-      key: 'proj_fireball_0',
-      draw: (ctx, size) => {
-        drawSoftCircle(ctx, size / 2, size / 2, size * 0.45, '#ff6a1f', 0.9);
-        drawSoftCircle(ctx, size / 2, size / 2, size * 0.26, '#ffd35c', 1);
-      },
-    },
-    {
-      key: 'proj_fireball_1',
-      draw: (ctx, size) => {
-        drawSoftCircle(ctx, size / 2, size / 2, size * 0.5, '#ff8a3d', 0.85);
-        drawSoftCircle(ctx, size / 2, size / 2, size * 0.3, '#fff2b0', 1);
-      },
-    },
-  ]);
-
-  // small glowing blade/shard meant to spin around the player
-  const orbiterGrid = makeGrid(8, 16);
-  fillRect(orbiterGrid, 3, 0, 4, 1, 't');
-  fillRect(orbiterGrid, 2, 1, 5, 3, 'b');
-  fillRect(orbiterGrid, 1, 3, 6, 7, 'b');
-  fillRect(orbiterGrid, 2, 7, 5, 10, 'b');
-  fillRect(orbiterGrid, 3, 10, 4, 13, 'b');
-  fillRect(orbiterGrid, 3, 4, 4, 6, 'c');
-  const orbiterPaletteA = { t: '#eafcff', b: '#4fd9ff', c: '#ffffff' };
-  const orbiterPaletteB = { t: '#eafcff', b: '#7fe6ff', c: '#dffcff' };
-  spriteAtlas.registerClip('orbiter_blade', 4, true, [
-    { key: 'orbiter_blade_0', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(orbiterGrid), orbiterPaletteA) },
-    { key: 'orbiter_blade_1', draw: (ctx, size) => drawPixelGrid(ctx, size, toRows(orbiterGrid), orbiterPaletteB) },
-  ]);
-
   // translucent gold/white ring/halo - pixel-art stepped band instead of a
   // smooth canvas arc()/stroke(), so it reads as chunky retro pixel art
   // like everything else on screen instead of a modern vector-UI ring
@@ -609,6 +553,7 @@ export function registerCoreSprites(): void {
   // instead of the single flat walk cycle this file used to hold.
   registerEnemyRosterSprites();
   registerBossRosterSprites();
+  registerPowerSprites();
   registerWeaponSprites();
   registerVfxSprites();
   registerDecorSprites();

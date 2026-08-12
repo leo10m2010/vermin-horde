@@ -1,44 +1,70 @@
 import type { Weapon, WeaponContext } from './WeaponBase';
 import { VisualCache } from './WeaponBase';
+import { effectAt } from './WeaponProgression';
 
-const BASE_COOLDOWN = 1.1;
-const BASE_DAMAGE = 14;
+/**
+ * AXE - FIXED ARC.
+ *
+ * Every axe is tossed toward a CONSTANT base direction: the top of the screen
+ * (world -Z; CameraRig sits at +Z looking toward -Z). Player movement never
+ * reaches this weapon's targeting - there is no facing, no velocity read, no
+ * sweep, no golden-angle spread, no random fallback. Walking in any of the
+ * eight directions leaves the throw exactly where it is.
+ *
+ * Amount IS the progression here. Extra axes open out SYMMETRICALLY around
+ * the base angle, so the fan stays centred on "up":
+ *
+ *   Lv1        Lv2          Lv5
+ *    A        A   A      A   A   A
+ *    |         \ /         \ | /
+ *    P          P            P
+ *
+ * The toss is rendered as a real 2.5D throw - rise, apex, fall - with the axe
+ * spinning through flight and a ground shadow that tightens and darkens as it
+ * comes down, so it reads as an object thrown through the air rather than a
+ * flat sprite carrying a Y offset.
+ */
+
 const BASE_SPEED = 9;
-const EVOLVED_TWIN_ANGLE = (18 * Math.PI) / 180; // evolved-only: second axe thrown simultaneously, offset from the primary throw
-const EXTRA_PROJECTILE_ANGLE = (14 * Math.PI) / 180; // Amount (Ammo Satchel): extra axes fan out from the primary throw
-const ARC_DURATION = 0.55; // seconds over which the visual toss-height rises then falls
-const ARC_HEIGHT = 0.55; // world units of peak visual rise - collisions stay flat on X/Z
-// Classic-survivors identity: every axe is tossed toward a FIXED base
-// direction - the top of the screen (world -Z; CameraRig positions the
-// camera at +Z looking toward -Z, so -Z is "away from camera" on screen) -
-// never toward wherever the player happens to be walking. This is a plain
-// constant, not state that changes over time (no sweep, no memory of last
-// movement, no random fallback) - re-reading this file is enough to confirm
-// player input never reaches this weapon's targeting at all.
+/** Angular gap between adjacent axes in the symmetric fan. */
+const FAN_STEP = (15 * Math.PI) / 180;
+/** Extra axes granted by the Amount passive fan out beyond the level fan. */
+const EXTRA_PROJECTILE_ANGLE = (13 * Math.PI) / 180;
+const ARC_DURATION = 0.62;
+const ARC_HEIGHT = 1.35;
+/** Fixed base direction: straight up the screen. A constant, never reassigned. */
 const BASE_ANGLE = -Math.PI / 2;
 
-/** Fixed-direction toss (always toward the top of the screen) with extra axes fanning symmetrically around that base - own identity, zero player-movement/facing input; pierces multiple enemies. */
+interface ArcState {
+  spawnedAt: number;
+  shadowIndex: number;
+}
+
 export class AxeWeapon implements Weapon {
   readonly id = 'axe_throw';
   readonly name = 'Axe';
   level = 1;
   readonly maxLevel = 8;
   evolved = false;
-  /** Evolves into a wider whirling form once the player also holds Wide Reach (area passive). */
   readonly evolutionRequiresPassive = 'passive_area';
 
   private readonly visualId: number;
+  /** Evolved Whirlwind Axe: gold-hot steel. */
+  private readonly evolvedVisualId: number;
+  private readonly shadowVisualId: number;
   private cooldown = 0;
-  /** projectile index -> elapsed time at launch, so the visual toss arc can be computed purely from age. */
-  private readonly arcs = new Map<number, number>();
+  private readonly arcs = new Map<number, ArcState>();
 
   constructor(visuals: VisualCache, private readonly weaponNumericId: number) {
-    this.visualId = visuals.get('proj_axe', 0.6, [1, 1, 1], true);
+    this.visualId = visuals.get('proj_axe', 0.95, [1, 1, 1], true);
+    this.evolvedVisualId = visuals.get('proj_axe_evo', 1.15, [1, 1, 1], true);
+    // Flat dark blob that stays on the ground under the axe for the whole toss.
+    this.shadowVisualId = visuals.get('fx_toss_shadow', 0.5, [1, 1, 1], false);
   }
 
-  private pierce(): number {
-    const base = 2 + Math.floor((this.level - 1) / 3);
-    return this.evolved ? base + 2 : base;
+  /** Axes thrown per cast at this level, before the Amount passive. */
+  axeCount(): number {
+    return effectAt(this.id, this.level, this.evolved).projectiles ?? 1;
   }
 
   update(ctx: WeaponContext): void {
@@ -46,54 +72,85 @@ export class AxeWeapon implements Weapon {
 
     this.cooldown -= ctx.dt;
     if (this.cooldown > 0) return;
-    // Balance: evolved no longer also gets a cooldown discount (was 0.75) -
-    // throwing a second axe simultaneously already doubles output, so
-    // stacking a rate-of-fire bonus on top pushed evolve to ~5x DPS vs. the
-    // ~1.7-2x other weapons get from their evolutions.
-    this.cooldown = Math.max(0.4, BASE_COOLDOWN - 0.05 * (this.level - 1)) * ctx.stats.cooldownMultiplier;
 
-    const angle = BASE_ANGLE;
+    const e = effectAt(this.id, this.level, this.evolved);
+    this.cooldown = e.cooldown * ctx.stats.cooldownMultiplier;
 
-    // Balance: was 1.3 - trimmed since the twin-throw already doubles damage output.
-    const damage = (BASE_DAMAGE + 2.2 * (this.level - 1)) * (this.evolved ? 1.15 : 1) * ctx.stats.damageMultiplier;
+    const damage = e.damage * ctx.stats.damageMultiplier;
     const speed = BASE_SPEED * (this.evolved ? 1.25 : 1) * ctx.stats.projectileSpeedMultiplier;
-    const pierce = this.pierce();
+    const pierce = e.pierce ?? 2;
+    const radius = (e.radius ?? 0.5) * ctx.stats.areaMultiplier;
     const life = 1.6 * ctx.stats.durationMultiplier;
-    this.throwAxe(ctx, angle, damage, speed, pierce, life);
-    if (this.evolved) {
-      // Evolved axe throws a second blade simultaneously in a fanned-out angle, a wider whirling spread instead of a single line.
-      this.throwAxe(ctx, angle + EVOLVED_TWIN_ANGLE, damage, speed, pierce, life);
+
+    // Symmetric fan centred on the fixed base angle: 1 axe -> straight up,
+    // 2 -> mirrored pair, 3 -> centre plus a mirrored pair, and so on.
+    const count = this.axeCount();
+    const mid = (count - 1) / 2;
+    for (let i = 0; i < count; i++) {
+      this.throwAxe(ctx, BASE_ANGLE + (i - mid) * FAN_STEP, damage, speed, pierce, life, radius);
     }
-    // Amount (Ammo Satchel) is compatible: extra axes fan out alternately left/right of the main throw.
+
+    // Amount stacks widen the fan further, still symmetric about "up".
     const extra = Math.max(0, Math.round(ctx.stats.extraProjectiles));
     for (let i = 0; i < extra; i++) {
       const side = i % 2 === 0 ? 1 : -1;
       const step = Math.floor(i / 2) + 1;
-      this.throwAxe(ctx, angle + side * step * EXTRA_PROJECTILE_ANGLE, damage, speed, pierce, life);
+      const outer = (count - 1) / 2 + step;
+      this.throwAxe(ctx, BASE_ANGLE + side * outer * EXTRA_PROJECTILE_ANGLE, damage, speed, pierce, life, radius);
     }
   }
 
-  private throwAxe(ctx: WeaponContext, angle: number, damage: number, speed: number, pierce: number, life: number): void {
-    const index = ctx.projectiles.spawn(this.visualId, ctx.playerX, ctx.playerZ, Math.cos(angle) * speed, Math.sin(angle) * speed, {
+  private throwAxe(ctx: WeaponContext, angle: number, damage: number, speed: number, pierce: number, life: number, radius: number): void {
+    const index = ctx.projectiles.spawn(this.evolved ? this.evolvedVisualId : this.visualId, ctx.playerX, ctx.playerZ, Math.cos(angle) * speed, Math.sin(angle) * speed, {
       damage,
-      radius: 0.5,
+      radius,
       pierce,
       life,
       weaponId: this.weaponNumericId,
     });
-    if (index !== -1) this.arcs.set(index, ctx.elapsed);
+    if (index === -1) return;
+    // Companion ground-shadow instance, driven by stepArcs alongside the axe.
+    const shadowIndex = ctx.projectiles.spawn(this.shadowVisualId, ctx.playerX, ctx.playerZ, 0, 0, {
+      damage: 0,
+      radius: 0,
+      pierce: 0,
+      life,
+      weaponId: -1, // never hit-tested
+    });
+    this.arcs.set(index, { spawnedAt: ctx.elapsed, shadowIndex });
   }
 
-  /** Purely visual 2.5D toss: rises then falls over ARC_DURATION, then stays grounded for the rest of its flight/pierce life. */
+  /**
+   * Visual-only 2.5D toss. Collisions stay flat on X/Z; this drives the
+   * rendered height, the spin rate, and the shadow that sells it: the shadow
+   * tracks the axe's ground position while shrinking and fading as the axe
+   * climbs, then tightening back down as it falls.
+   */
   private stepArcs(ctx: WeaponContext): void {
-    for (const [index, spawnedAt] of this.arcs) {
+    for (const [index, state] of this.arcs) {
       if (!ctx.projectiles.alive[index]) {
+        if (state.shadowIndex !== -1) ctx.projectiles.despawn(state.shadowIndex);
         this.arcs.delete(index);
         continue;
       }
-      const t = Math.min(1, (ctx.elapsed - spawnedAt) / ARC_DURATION);
-      ctx.projectiles.setHeightOffset(index, Math.sin(t * Math.PI) * ARC_HEIGHT);
-      if (t >= 1) this.arcs.delete(index);
+      const t = Math.min(1, (ctx.elapsed - state.spawnedAt) / ARC_DURATION);
+      const height = Math.sin(t * Math.PI) * ARC_HEIGHT;
+      ctx.projectiles.setHeightOffset(index, height);
+      // Axe reads bigger at the apex (closer to the "camera") and smaller on the ground.
+      ctx.projectiles.setSize(index, (this.evolved ? 1.15 : 0.95) * (1 + height * 0.22));
+
+      if (state.shadowIndex !== -1 && ctx.projectiles.alive[state.shadowIndex]) {
+        ctx.projectiles.setPosition(state.shadowIndex, ctx.projectiles.posX[index], ctx.projectiles.posZ[index]);
+        const lift = height / ARC_HEIGHT; // 0 on the ground, 1 at the apex
+        ctx.projectiles.setSize(state.shadowIndex, 0.5 * (1 - lift * 0.45));
+        ctx.projectiles.setAlpha(state.shadowIndex, 0.55 * (1 - lift * 0.6));
+      }
+
+      if (t >= 1) {
+        // Toss finished: drop the shadow, let the axe keep flying flat.
+        if (state.shadowIndex !== -1) ctx.projectiles.despawn(state.shadowIndex);
+        this.arcs.delete(index);
+      }
     }
   }
 

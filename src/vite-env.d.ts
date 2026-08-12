@@ -85,6 +85,24 @@ interface ThreeGameTestHooks {
   setEnemyPose(pose: string | null): void;
   /** QA helper: the pose every live enemy is currently playing, for asserting telegraphs actually fire in real gameplay. */
   getEnemyAnimStates(): Array<{ name: string; pose: string; isBoss: boolean }>;
+  /**
+   * Power inspection: isolate one weapon at a level (or 'evolved') with a ring
+   * of frozen dummy targets, so its pattern/count/direction/VFX can be
+   * captured reproducibly at each milestone. Returns the weapon's authoritative
+   * stats at that level.
+   */
+  powerShowcase(
+    weaponId: string,
+    level: number | 'evolved',
+  ): { id: string; level: number; evolved: boolean; effect: Record<string, number | undefined> };
+  /** QA helper: every live projectile belonging to a weapon (position, velocity, hit radius). */
+  getProjectileCensus(weaponId: string): Array<{ x: number; z: number; vx: number; vz: number; radius: number }>;
+  /** QA helper: radii of the ground rings actually drawn this frame, to compare drawn area against damaging area. */
+  getGroundRingRadii(): number[];
+  /** QA helper: the authoritative progression numbers the simulation uses at a level. */
+  getWeaponEffect(weaponId: string, level: number, evolved?: boolean): Record<string, number | undefined>;
+  /** QA helper: what the level-up card will claim, derived from the same table the weapon reads. */
+  getLevelDiff(weaponId: string, from: number, to: number): Array<{ field: string; headline: string; detail: string; from: number; to: number }>;
   /** Art-inspection: leave showcase mode and clear the lineup. */
   exitEnemyShowcase(): void;
 }

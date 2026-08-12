@@ -1,9 +1,8 @@
 import { gameEvents } from '../core/EventBus';
 import type { Weapon, WeaponContext } from './WeaponBase';
 import { VisualCache } from './WeaponBase';
+import { effectAt } from './WeaponProgression';
 
-const BASE_TICK = 0.4;
-const BASE_DAMAGE = 5;
 const BASE_RADIUS = 2.2;
 const RING_COLOR = '#ffcf7a';
 const RING_OPACITY = 0.5;
@@ -38,25 +37,27 @@ export class GarlicWeapon implements Weapon {
     // Computed every frame (not just on tick) so the ring visual - and its
     // hit-test radius below - both track area upgrades/arcanas live instead
     // of the ring staying a fixed size while the real damage radius grows.
-    const radius = (BASE_RADIUS + 0.05 * (this.level - 1)) * ctx.stats.areaMultiplier;
+    // ONE radius value feeds both the drawn ring and the damage query below,
+    // so the aura the player sees is exactly the aura that hurts.
+    const radius = this.auraRadius(ctx.stats.areaMultiplier);
 
     if (this.ringIndex === -1) this.ringIndex = ctx.groundRings.acquire();
     ctx.groundRings.set(this.ringIndex, ctx.playerX, ctx.playerZ, radius, RING_COLOR, RING_OPACITY);
 
     this.cooldown -= ctx.dt;
     if (this.cooldown > 0) return;
-    this.cooldown = Math.max(0.2, BASE_TICK - 0.01 * (this.level - 1)) * ctx.stats.cooldownMultiplier;
+    this.cooldown = effectAt(this.id, this.level, this.evolved).cooldown * ctx.stats.cooldownMultiplier;
 
     const count = ctx.enemies.queryRadius(ctx.playerX, ctx.playerZ, radius, this.hitBuffer);
     if (count === 0) return;
 
-    const damagePerTick = (BASE_DAMAGE + 0.6 * (this.level - 1)) * (this.evolved ? 2 : 1) * ctx.stats.damageMultiplier;
+    const damagePerTick = effectAt(this.id, this.level, this.evolved).damage * ctx.stats.damageMultiplier;
     let totalDealt = 0;
     for (let i = 0; i < count; i++) {
       const enemyIndex = this.hitBuffer[i];
       const crit = ctx.rng() < ctx.stats.critChance;
       const dmg = damagePerTick * (crit ? ctx.stats.critMultiplier : 1);
-      ctx.enemies.damage(enemyIndex, dmg, crit);
+      ctx.enemies.damage(enemyIndex, dmg, crit, this.id);
       totalDealt += dmg;
     }
     if (this.evolved && totalDealt > 0) {
@@ -64,6 +65,11 @@ export class GarlicWeapon implements Weapon {
       ctx.stats.health = Math.min(ctx.stats.maxHealth, ctx.stats.health + totalDealt * EVOLVED_LIFESTEAL_FRACTION);
     }
     gameEvents.emit('weaponFired', { weaponId: this.id, x: ctx.playerX, z: ctx.playerZ });
+  }
+
+  /** The single radius used for BOTH the visual ring and the damage query. Public so tests can assert they match. */
+  auraRadius(areaMultiplier: number): number {
+    return (effectAt(this.id, this.level, this.evolved).radius ?? BASE_RADIUS) * areaMultiplier;
   }
 
   levelUp(): void {

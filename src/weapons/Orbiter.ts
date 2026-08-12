@@ -1,7 +1,7 @@
 import type { Weapon, WeaponContext } from './WeaponBase';
 import { VisualCache } from './WeaponBase';
+import { effectAt } from './WeaponProgression';
 
-const BASE_DAMAGE = 6;
 const RADIUS_COEFFICIENT = 2.2;
 const ANGULAR_SPEED = 2.2; // rad/s
 const HIT_RADIUS = 0.5;
@@ -23,6 +23,8 @@ export class OrbiterWeapon implements Weapon {
   readonly evolutionRequiresPassive = 'passive_extra_projectile';
 
   private readonly visualId: number;
+  /** Evolved Aureole Ring: gold blades. Swapped by rebuilding the ring on evolve. */
+  private readonly evolvedVisualId: number;
   private readonly bladeIndices: number[] = [];
   private angle = 0;
   /** `${bladeSlot}:${enemyIndex}` -> elapsed time this blade may next damage that enemy. */
@@ -30,21 +32,30 @@ export class OrbiterWeapon implements Weapon {
   private lastPrune = 0;
   private readonly hitBuffer: number[] = [];
   private pulseCooldown = EVOLVED_PULSE_INTERVAL;
+  /** Set by evolve(); the ring is rebuilt on the next update so the new blade sprite is used. */
+  private pendingRebuild = false;
 
   constructor(private readonly visuals: VisualCache, private readonly weaponNumericId: number) {
-    this.visualId = this.visuals.get('orbiter_blade', 0.5, [1, 1, 1], true);
+    this.visualId = this.visuals.get('orbiter_blade', 0.62, [1, 1, 1], false);
+    this.evolvedVisualId = this.visuals.get('orbiter_blade_evo', 0.75, [1, 1, 1], false);
   }
 
-  /** Lv1:1, Lv2:2, Lv4:3, Lv6:4, Lv8:5 - every step is a blade you can count on screen. */
-  private targetBladeCount(): number {
-    const base = Math.min(5, 1 + Math.floor(this.level / 2));
-    return this.evolved ? base + 2 : base;
+  /** Lv1:1, Lv2:2, Lv4:3, Lv6:4, Lv8:5 - read straight from the progression
+   * table, so the level-up card's "+1 hoja" and the blades actually orbiting
+   * are the same number by construction. Public for tests/showcase. */
+  bladeCount(): number {
+    return effectAt(this.id, this.level, this.evolved).blades ?? 1;
   }
 
   update(ctx: WeaponContext): void {
-    const target = this.targetBladeCount();
+    if (this.pendingRebuild) {
+      this.pendingRebuild = false;
+      for (const index of this.bladeIndices) ctx.projectiles.despawn(index);
+      this.bladeIndices.length = 0;
+    }
+    const target = this.bladeCount();
     while (this.bladeIndices.length < target) {
-      const index = ctx.projectiles.spawn(this.visualId, ctx.playerX, ctx.playerZ, 0, 0, {
+      const index = ctx.projectiles.spawn(this.evolved ? this.evolvedVisualId : this.visualId, ctx.playerX, ctx.playerZ, 0, 0, {
         damage: 0, // damage is applied directly by this weapon, not through the generic hit resolver
         radius: HIT_RADIUS,
         pierce: 0,
@@ -56,8 +67,9 @@ export class OrbiterWeapon implements Weapon {
     }
 
     this.angle += ctx.dt * ANGULAR_SPEED;
-    const orbitRadius = RADIUS_COEFFICIENT * ctx.stats.areaMultiplier;
-    const damagePerTick = (BASE_DAMAGE + 0.5 * (this.level - 1)) * (this.evolved ? 1.3 : 1) * ctx.stats.damageMultiplier;
+    const e = effectAt(this.id, this.level, this.evolved);
+    const orbitRadius = (e.radius ?? RADIUS_COEFFICIENT) * ctx.stats.areaMultiplier;
+    const damagePerTick = e.damage * ctx.stats.damageMultiplier;
 
     for (let slot = 0; slot < this.bladeIndices.length; slot++) {
       const projIndex = this.bladeIndices[slot];
@@ -76,7 +88,7 @@ export class OrbiterWeapon implements Weapon {
         if (readyAt > ctx.elapsed) continue;
         const crit = ctx.rng() < ctx.stats.critChance;
         const dmg = damagePerTick * (crit ? ctx.stats.critMultiplier : 1);
-        ctx.enemies.damage(enemyIndex, dmg, crit);
+        ctx.enemies.damage(enemyIndex, dmg, crit, this.id);
         this.hitCooldowns.set(key, ctx.elapsed + HIT_COOLDOWN);
       }
     }
@@ -93,7 +105,7 @@ export class OrbiterWeapon implements Weapon {
           const enemyIndex = this.hitBuffer[i];
           const crit = ctx.rng() < ctx.stats.critChance;
           const dmg = pulseDamage * (crit ? ctx.stats.critMultiplier : 1);
-          ctx.enemies.damage(enemyIndex, dmg, crit);
+          ctx.enemies.damage(enemyIndex, dmg, crit, this.id);
         }
       }
     }
@@ -112,5 +124,8 @@ export class OrbiterWeapon implements Weapon {
 
   evolve(): void {
     this.evolved = true;
+    // Blades are life:Infinity instances created once, so the sprite swap only
+    // takes effect if the existing ring is torn down and rebuilt next frame.
+    this.pendingRebuild = true;
   }
 }

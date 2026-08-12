@@ -51,6 +51,8 @@ export class HexFlaskWeapon implements Weapon {
   readonly evolutionRequiresPassive = 'passive_duration';
 
   private readonly flightVisualId: number;
+  /** Evolved sprite - an evolution must be visible, not a tint. */
+  private readonly evolvedFlightVisualId: number;
   private cooldown = 0;
   private readonly flights = new Map<number, FlightState>();
   private readonly zones = new Map<number, ZoneState>();
@@ -58,6 +60,7 @@ export class HexFlaskWeapon implements Weapon {
 
   constructor(visuals: VisualCache, private readonly weaponNumericId: number) {
     this.flightVisualId = visuals.get('proj_hexflask', 0.5, [1, 1, 1], true);
+    this.evolvedFlightVisualId = visuals.get('proj_hexflask_evo', 0.5, [1, 1, 1], false);
   }
 
   update(ctx: WeaponContext): void {
@@ -87,7 +90,7 @@ export class HexFlaskWeapon implements Weapon {
 
     const dx = landX - ctx.playerX;
     const dz = landZ - ctx.playerZ;
-    const index = ctx.projectiles.spawn(this.flightVisualId, ctx.playerX, ctx.playerZ, dx / TRAVEL_TIME, dz / TRAVEL_TIME, {
+    const index = ctx.projectiles.spawn(this.evolved ? this.evolvedFlightVisualId : this.flightVisualId, ctx.playerX, ctx.playerZ, dx / TRAVEL_TIME, dz / TRAVEL_TIME, {
       damage: 0,
       radius: 0.4,
       pierce: 0,
@@ -175,7 +178,7 @@ export class HexFlaskWeapon implements Weapon {
         const enemyIndex = this.hitBuffer[i];
         const crit = ctx.rng() < ctx.stats.critChance;
         const dmg = zone.tickDamage * (crit ? ctx.stats.critMultiplier : 1);
-        ctx.enemies.damage(enemyIndex, dmg, crit);
+        ctx.enemies.damage(enemyIndex, dmg, crit, this.id);
       }
     }
   }

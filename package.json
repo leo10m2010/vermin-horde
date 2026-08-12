@@ -10,7 +10,8 @@
     "test": "playwright test",
     "verify:visual": "playwright test tests/visual.spec.ts",
     "inspect:canvas": "node scripts/inspect-threejs-canvas.mjs",
-    "inspect:enemies": "node scripts/inspect-enemy-showcase.mjs"
+    "inspect:enemies": "node scripts/inspect-enemy-showcase.mjs",
+    "inspect:powers": "node scripts/inspect-power-showcase.mjs"
   },
   "dependencies": {
     "lil-gui": "^0.21.0",

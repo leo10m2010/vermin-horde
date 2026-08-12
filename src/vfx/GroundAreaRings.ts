@@ -66,6 +66,20 @@ export class GroundAreaRings {
   }
 
   /** Update a held slot's position/size/color for this frame. Call every frame the slot is active - there is no built-in fade or lifetime. */
+  /**
+   * QA/inspection: the world-unit radius each visible ring is currently drawn
+   * at. Lets a test assert that a weapon's DRAWN area is the same number as
+   * its DAMAGING area, instead of trusting that the two code paths agree.
+   */
+  activeRadii(): number[] {
+    const out: number[] = [];
+    for (let i = 0; i < this.meshes.length; i++) {
+      const mesh = this.meshes[i];
+      if (mesh.visible) out.push(mesh.scale.x);
+    }
+    return out;
+  }
+
   set(index: number, x: number, z: number, radius: number, color: string, opacity = 0.5): void {
     if (index === -1) return;
     const mesh = this.meshes[index];

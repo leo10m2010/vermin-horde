@@ -326,8 +326,12 @@ export class EnemyManager {
     return index;
   }
 
-  /** Apply damage; returns true if this hit killed the enemy. */
-  damage(index: number, amount: number, crit = false): boolean {
+  /**
+   * Apply damage; returns true if this hit killed the enemy. `sourceWeaponId`
+   * is carried through purely so the run summary can attribute damage per
+   * power - nothing in combat reads it.
+   */
+  damage(index: number, amount: number, crit = false, sourceWeaponId?: string): boolean {
     if (!this.alive[index]) return false;
     this.hp[index] -= amount;
     this.flashTimer[index] = 0.09;
@@ -335,7 +339,7 @@ export class EnemyManager {
     // "something happened to that pixel", the recoil pose reads as "that
     // creature was hurt".
     this.requestPose(index, 'hit', HIT_POSE_DURATION);
-    gameEvents.emit('enemyHit', { x: this.posX[index], z: this.posZ[index], damage: amount, crit, enemyIndex: index });
+    gameEvents.emit('enemyHit', { x: this.posX[index], z: this.posZ[index], damage: amount, crit, enemyIndex: index, weaponId: sourceWeaponId });
     if (this.hp[index] <= 0) {
       this.kill(index);
       return true;

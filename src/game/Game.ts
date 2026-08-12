@@ -28,6 +28,7 @@ import { TreasureSystem } from '../systems/TreasureSystem';
 import { ParticleSystem, DamageNumbers, BossTelegraphRings, ProjectileTrails, GemCollectEffect, LevelUpEffects, EliteAura, GroundAreaRings } from '../vfx';
 import { UiRoot, type UpgradeOptionLike, type PauseBuildInfo } from '../ui/UiRoot';
 import { getWeaponMetadata, WEAPON_EVOLUTION_PASSIVE_ID } from '../weapons/WeaponMetadata';
+import { describeLevelUp, effectAt } from '../weapons/WeaponProgression';
 import { PASSIVE_DEFS } from '../systems/UpgradeSystem';
 import { CharacterSelect } from '../ui/CharacterSelect';
 import { StageSelect } from '../ui/StageSelect';
@@ -109,6 +110,10 @@ export class Game {
   private showcaseMode = false;
   /** Camera framing override while showcasing, so a whole lineup fits on screen. */
   private showcaseViewHeight = 0;
+  /** Power-showcase only: suspends wave spawning while leaving weapons running (they are the subject). */
+  private waveSpawningEnabled = true;
+  /** weapon id -> total damage dealt this run, for the results-screen breakdown. Cleared on beginRun(). */
+  private readonly damageByWeapon = new Map<string, number>();
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.renderer = createRenderer(canvas);
@@ -318,6 +323,7 @@ export class Game {
   private beginRun(seed = Date.now() & 0xffffffff): void {
     this.state.reset(seed);
     this.rng = createSeededRandom(seed);
+    this.damageByWeapon.clear();
 
     this.enemies.clear();
     this.projectiles.clear();
@@ -514,7 +520,7 @@ export class Game {
       // and weapon fire so the inspection lineup isn't buried by a horde or
       // shot to pieces mid-comparison. Enemies themselves keep updating, so
       // their animations still run.
-      if (!this.showcaseMode) {
+      if (!this.showcaseMode && this.waveSpawningEnabled) {
         this.waveDirector.update(animDelta, this.state.run.elapsed, this.player.position.x, this.player.position.z, this.state.stats.luck);
       }
 
@@ -647,7 +653,18 @@ export class Game {
   /** Cheap DOM diffing: only touches icon/level/class when the owned-weapon signature actually changed, since this runs every frame. */
   private updatePowerSlots(): void {
     const owned = this.weaponSystem.listOwned();
-    const signature = owned.map((w) => `${w.id}:${w.level}:${w.evolved ? 1 : 0}`).join('|');
+    // "Ready to evolve" is part of the signature: the slot has to re-render
+    // the moment the gating passive is picked up, not only when a level changes.
+    const readyIds = new Set(
+      owned
+        .filter((w) => {
+          if (w.evolved || w.level < w.maxLevel) return false;
+          const required = WEAPON_EVOLUTION_PASSIVE_ID[w.id];
+          return !required || (this.state.ownedPassives.get(required) ?? 0) > 0;
+        })
+        .map((w) => w.id),
+    );
+    const signature = owned.map((w) => `${w.id}:${w.level}:${w.evolved ? 1 : 0}:${readyIds.has(w.id) ? 1 : 0}`).join('|');
     if (signature === this.lastPowerSlotSignature) return;
     this.lastPowerSlotSignature = signature;
 
@@ -664,7 +681,16 @@ export class Game {
       slot.icon.style.visibility = 'visible';
       slot.icon.src = getUpgradeIconDataUrl(weapon.id);
       slot.level.textContent = weapon.evolved ? '★' : String(weapon.level);
-      slot.root.className = `hud-power-slot hud-power-slot--filled${weapon.evolved ? ' hud-power-slot--evolved' : ''}`;
+      const ready = readyIds.has(weapon.id);
+      slot.root.className =
+        `hud-power-slot hud-power-slot--filled` +
+        (weapon.evolved ? ' hud-power-slot--evolved' : '') +
+        (ready ? ' hud-power-slot--ready' : '');
+      slot.root.title = weapon.evolved
+        ? `${t(weapon.name)} — ${t('evolucionado')}`
+        : ready
+          ? `${t(weapon.name)} — ${t('listo para evolucionar')}`
+          : `${t(weapon.name)} Lv${weapon.level}`;
     }
   }
 
@@ -715,6 +741,10 @@ export class Game {
     });
     gameEvents.on('enemyHit', (e) => {
       this.state.run.damageDealt += e.damage;
+      // Per-weapon damage ledger for the run summary. A plain Map keyed by
+      // weapon id - at most 6 entries, written once per hit, so it costs
+      // nothing next to the damage calculation that produced the number.
+      if (e.weaponId) this.damageByWeapon.set(e.weaponId, (this.damageByWeapon.get(e.weaponId) ?? 0) + e.damage);
     });
     gameEvents.on('gemCollected', (e) => {
       this.state.run.gemsCollected += 1;
@@ -751,8 +781,13 @@ export class Game {
     gameEvents.on('weaponEvolved', (e) => {
       this.particles.spawnBurst(this.player.position.x, this.player.position.z, { count: 46, colorHex: '#ffe066', speed: 7, life: 0.9 });
       this.cameraRig.shake(0.22, 0.3);
-      const evolvedName = getWeaponMetadata(e.weaponId)?.evolvedName;
-      this.showToast(`${t('EVOLUCIÓN')} — ${evolvedName ? t(evolvedName) : e.name}`);
+      const meta = getWeaponMetadata(e.weaponId);
+      this.ui.showEvolution({
+        id: e.weaponId,
+        fromName: meta?.name ?? e.name,
+        toName: meta?.evolvedName ?? e.name,
+      });
+
     });
     gameEvents.on('runOver', (e) => {
       const stats = {
@@ -760,7 +795,14 @@ export class Game {
         kills: e.kills,
         level: e.level,
         goldEarned: Math.max(0, this.metaProgression.gold - this.goldAtRunStart),
+        damageByPower: this.buildDamageBreakdown(),
       };
+      // A run can end while the level-up picker is still open (a pending
+      // level-up the player had not resolved yet). Close it first, otherwise
+      // two overlays stack and the dead picker is still clickable behind the
+      // results panel.
+      this.ui.hideUpgradePicker();
+      this.pendingLevelUps = 0;
       if (e.victory) this.ui.showVictory(stats);
       else this.ui.showGameOver(stats);
     });
@@ -861,6 +903,65 @@ export class Game {
         this.selectedCharacter = character;
       },
       enemyShowcase: (opts) => this.enterEnemyShowcase(opts ?? {}),
+      /**
+       * Power inspection: isolate ONE weapon at a given level (or evolved)
+       * with a ring of dummy targets to shoot at, so its pattern, count,
+       * direction, reach and VFX can be captured reproducibly at each
+       * milestone - the weapon equivalent of `enemyShowcase`.
+       */
+      powerShowcase: (weaponId: string, level: number | 'evolved') => {
+        if (this.state.phase !== 'playing') this.beginRun();
+        this.showcaseMode = false; // weapons MUST run - they are the subject
+        this.godMode = true;
+        this.enemies.clear();
+        this.waveSpawningEnabled = false;
+
+        this.weaponSystem.reset(weaponId);
+        const targetLevel = level === 'evolved' ? 8 : Math.max(1, Math.min(8, level));
+        for (let i = 1; i < targetLevel; i++) this.weaponSystem.levelUp(weaponId);
+        if (level === 'evolved') this.weaponSystem.forceEvolve(weaponId);
+
+        // Park the player at the origin and ring it with stationary, very
+        // high-HP dummies so the weapon has something to target and hit
+        // without the lineup dissolving mid-capture.
+        this.player.position.set(0, LAYER_Y.player, 0);
+        this.player.velocity.set(0, 0, 0);
+        this.cameraRig.snapTo(SHOWCASE_CAMERA_TARGET);
+        const ring = 12;
+        for (let i = 0; i < ring; i++) {
+          const a = (i / ring) * Math.PI * 2;
+          const d = 4.5 + (i % 3) * 1.6;
+          const idx = this.enemies.spawn(this.enemyTypes.grunt, Math.cos(a) * d, Math.sin(a) * d, { hpMult: 4000 });
+          if (idx !== -1) this.enemies.frozen[idx] = 1;
+        }
+        this.showcaseViewHeight = 22;
+        const w = this.weaponSystem.listOwned().find((x) => x.id === weaponId);
+        return { id: weaponId, level: w?.level ?? 0, evolved: w?.evolved ?? false, effect: effectAt(weaponId, w?.level ?? 1, w?.evolved ?? false) };
+      },
+      /** QA helper: live projectile census by weapon, for asserting counts/patterns from a test. */
+      getProjectileCensus: (weaponId: string) => {
+        const numericId = this.weaponSystem.getWeaponNumericId(weaponId);
+        const out: Array<{ x: number; z: number; vx: number; vz: number; radius: number }> = [];
+        if (numericId === -1) return out;
+        for (let i = 0; i < this.projectiles.capacity; i++) {
+          if (this.projectiles.alive[i] && this.projectiles.weaponId[i] === numericId) {
+            out.push({
+              x: this.projectiles.posX[i],
+              z: this.projectiles.posZ[i],
+              vx: this.projectiles.velX[i],
+              vz: this.projectiles.velZ[i],
+              radius: this.projectiles.radius[i],
+            });
+          }
+        }
+        return out;
+      },
+      /** QA helper: radii of the ground rings actually being drawn this frame (Garlic aura, Hex Flask zones). */
+      getGroundRingRadii: () => this.groundRings.activeRadii(),
+      /** QA helper: the authoritative progression numbers the simulation uses at a level. */
+      getWeaponEffect: (weaponId: string, level: number, evolved = false) => effectAt(weaponId, level, evolved),
+      /** QA helper: what the level-up card will claim, derived from the same table. */
+      getLevelDiff: (weaponId: string, from: number, to: number) => describeLevelUp(weaponId, from, to),
       setEnemyPose: (pose) => {
         const index = pose === null ? -1 : ENEMY_POSES.indexOf(pose as EnemyPose);
         if (pose !== null && index === -1) {
@@ -896,6 +997,7 @@ export class Game {
       exitEnemyShowcase: () => {
         this.showcaseMode = false;
         this.showcaseViewHeight = 0;
+        this.waveSpawningEnabled = true;
         this.enemies.clear();
       },
     };
@@ -964,6 +1066,20 @@ export class Game {
     // Frame the whole grid with a margin, unless the caller pins a value.
     this.showcaseViewHeight = opts.viewHeight ?? Math.max(20, rows * rowGap + 14);
     return layout;
+  }
+
+  /** Ranked damage share per weapon, biggest first, for the run summary. */
+  private buildDamageBreakdown(): Array<{ id: string; name: string; percent: number }> {
+    let total = 0;
+    for (const v of this.damageByWeapon.values()) total += v;
+    if (total <= 0) return [];
+    return Array.from(this.damageByWeapon.entries())
+      .map(([id, amount]) => ({
+        id,
+        name: getWeaponMetadata(id)?.name ?? id,
+        percent: (amount / total) * 100,
+      }))
+      .sort((a, b) => b.percent - a.percent);
   }
 
   private publishDiagnostics(): void {

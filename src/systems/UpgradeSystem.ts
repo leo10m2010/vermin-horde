@@ -4,6 +4,7 @@ import { t } from '../i18n';
 import { bonusSlotChance, totalLuck } from '../utils/luck';
 import { WEAPON_ROSTER } from '../weapons/WeaponRegistry';
 import { getWeaponLevelStep, getWeaponMetadata } from '../weapons/WeaponMetadata';
+import { describeLevelUp } from '../weapons/WeaponProgression';
 import type { WeaponSystem } from '../weapons/WeaponSystem';
 
 export interface UpgradeOption {
@@ -16,6 +17,13 @@ export interface UpgradeOption {
   toLevel?: number;
   /** Attack-pattern hint shown on new-weapon cards, e.g. "Dirección de movimiento". */
   directionLabel?: string;
+  /**
+   * Concrete before/after readout for the headline change, e.g. "2 → 3
+   * proyectiles". Derived from the weapon's own progression table
+   * (WeaponProgression.describeLevelUp), never hand-written, so it always
+   * matches what the pick really does.
+   */
+  detail?: string;
 }
 
 /** Max distinct passive TYPES the player may hold at once (existing ones can still keep stacking past this). */
@@ -192,12 +200,27 @@ export class UpgradeSystem {
     for (const owned of this.weapons.listOwned()) {
       if (owned.level >= owned.maxLevel) continue;
       const toLevel = owned.level + 1;
+      // Derive the card text from the progression table the weapon itself
+      // reads (see WeaponProgression.describeLevelUp), so a card can never
+      // promise an effect the level does not actually apply. Falls back to
+      // the hand-written metadata step only if a weapon has no table yet.
+      const changes = describeLevelUp(owned.id, owned.level, toLevel);
       const step = getWeaponLevelStep(owned.id, toLevel);
-      const description = step ? t(step.summary) + (step.detail ? ` (${t(step.detail)})` : '') : `${t('Level up')} ${t(owned.name)} ${t('to level')} ${toLevel}.`;
+      let description: string;
+      let detail: string | undefined;
+      if (changes.length > 0) {
+        description = changes.map((c) => t(c.headline)).join(', ');
+        detail = t(changes[0].detail);
+      } else if (step) {
+        description = t(step.summary) + (step.detail ? ` (${t(step.detail)})` : '');
+      } else {
+        description = `${t('Level up')} ${t(owned.name)} ${t('to level')} ${toLevel}.`;
+      }
       pool.push({
         id: owned.id,
         name: owned.name,
         description,
+        detail,
         kind: 'weapon-level',
         fromLevel: owned.level,
         toLevel,

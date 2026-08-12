@@ -1,10 +1,9 @@
 import type { Weapon, WeaponContext } from './WeaponBase';
 import { VisualCache } from './WeaponBase';
+import { effectAt } from './WeaponProgression';
 
 const RANGE = 13; // search radius for a launch target
 const MAX_TRAVEL_RANGE = 9; // distance traveled outbound before turning back
-const BASE_COOLDOWN = 1.4;
-const BASE_DAMAGE = 11;
 const BASE_SPEED = 10;
 const TOTAL_LIFE = 2.6; // seconds; natural despawn once this elapses
 const RETURN_TRIGGER_FRACTION = 0.6; // switch to 'return' once past this fraction of total life
@@ -44,15 +43,21 @@ export class ArcCrossWeapon implements Weapon {
   readonly evolutionRequiresPassive = 'passive_luck';
 
   private readonly visualId: number;
+  /** Warm-gold sprite used on the RETURN leg, so out vs. back is readable at a glance. */
+  private readonly returnVisualId: number;
+  /** Evolved Radiant Cross. */
+  private readonly evolvedVisualId: number;
   private cooldown = 0;
   private readonly flight = new Map<number, FlightState>();
 
   constructor(visuals: VisualCache, private readonly weaponNumericId: number) {
-    this.visualId = visuals.get('proj_cross', 0.55, [1, 1, 1], true);
+    this.visualId = visuals.get('proj_cross', 0.85, [1, 1, 1], true);
+    this.returnVisualId = visuals.get('proj_cross_return', 0.85, [1, 1, 1], true);
+    this.evolvedVisualId = visuals.get('proj_cross_evo', 1.0, [1, 1, 1], true);
   }
 
   private pierce(): number {
-    const base = 2 + Math.floor((this.level - 1) / 3);
+    const base = effectAt(this.id, this.level, this.evolved).pierce ?? 2;
     return this.evolved ? base + 2 : base;
   }
 
@@ -64,13 +69,14 @@ export class ArcCrossWeapon implements Weapon {
     const target = ctx.enemies.queryNearest(ctx.playerX, ctx.playerZ, RANGE);
     if (target === -1) return;
 
-    this.cooldown = Math.max(0.55, BASE_COOLDOWN - 0.05 * (this.level - 1)) * (this.evolved ? 0.8 : 1) * ctx.stats.cooldownMultiplier;
+    const e = effectAt(this.id, this.level, this.evolved);
+    this.cooldown = e.cooldown * ctx.stats.cooldownMultiplier;
 
     const dx = ctx.enemies.posX[target] - ctx.playerX;
     const dz = ctx.enemies.posZ[target] - ctx.playerZ;
     const baseAngle = Math.atan2(dz, dx);
     const speed = BASE_SPEED * ctx.stats.projectileSpeedMultiplier;
-    const damage = (BASE_DAMAGE + 1.7 * (this.level - 1)) * (this.evolved ? 1.35 : 1) * ctx.stats.damageMultiplier;
+    const damage = e.damage * ctx.stats.damageMultiplier;
     const totalLife = TOTAL_LIFE * ctx.stats.durationMultiplier;
 
     this.launchCross(ctx, target, baseAngle, speed, damage, totalLife);
@@ -84,7 +90,7 @@ export class ArcCrossWeapon implements Weapon {
   }
 
   private launchCross(ctx: WeaponContext, target: number, angle: number, speed: number, damage: number, totalLife: number): void {
-    const index = ctx.projectiles.spawn(this.visualId, ctx.playerX, ctx.playerZ, Math.cos(angle) * speed, Math.sin(angle) * speed, {
+    const index = ctx.projectiles.spawn(this.evolved ? this.evolvedVisualId : this.visualId, ctx.playerX, ctx.playerZ, Math.cos(angle) * speed, Math.sin(angle) * speed, {
       damage,
       radius: 0.42,
       pierce: this.pierce(),
@@ -119,6 +125,8 @@ export class ArcCrossWeapon implements Weapon {
         const traveledSq = (px - state.spawnX) ** 2 + (pz - state.spawnZ) ** 2;
         if (age > state.totalLife * RETURN_TRIGGER_FRACTION || traveledSq > MAX_TRAVEL_RANGE * MAX_TRAVEL_RANGE) {
           state.phase = 'return';
+          // Colour temperature flips cool -> warm the moment it turns around.
+          ctx.projectiles.setVisual(index, this.evolved ? this.evolvedVisualId : this.returnVisualId);
         } else if (this.evolved && ctx.enemies.alive[state.targetIndex]) {
           // Evolved cross keeps steering toward its original target on the way out instead of flying a straight line - it never "loses" what it launched at.
           const dx = ctx.enemies.posX[state.targetIndex] - px;

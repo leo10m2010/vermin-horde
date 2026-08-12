@@ -96,7 +96,7 @@ export class WeaponSystem {
       const damage = this.projectiles.damage[i] * (crit ? ctx.stats.critMultiplier : 1);
       const hitX = this.projectiles.posX[i];
       const hitZ = this.projectiles.posZ[i];
-      this.enemies.damage(enemyIndex, damage, crit);
+      this.enemies.damage(enemyIndex, damage, crit, weapon.id);
       this.lastHitEnemy[i] = enemyIndex;
       weapon.onProjectileHit?.(ctx, hitX, hitZ, damage, enemyIndex);
       this.projectiles.registerHit(i);
@@ -154,6 +154,20 @@ export class WeaponSystem {
     for (const weapon of this.owned.values()) this.tryEvolve(weapon);
   }
 
+  /**
+   * QA/showcase only: evolve a weapon immediately, bypassing the max-level +
+   * required-passive gate, so the evolved form can be inspected without
+   * playing a full run to reach it. Never called by gameplay.
+   */
+  forceEvolve(id: string): boolean {
+    const weapon = this.owned.get(id);
+    if (!weapon || weapon.evolved || !weapon.evolve) return false;
+    weapon.level = weapon.maxLevel;
+    weapon.evolve();
+    gameEvents.emit('weaponEvolved', { weaponId: weapon.id, name: weapon.name });
+    return true;
+  }
+
   hasWeapon(id: string): boolean {
     return this.owned.has(id);
   }
@@ -181,6 +195,12 @@ export class WeaponSystem {
     this.hitTestable.clear();
     this.lastHitEnemy.fill(-1);
     this.ownedPassives = new Map();
+    // Some weapons own visuals with no natural expiry - the orbiter's blades
+    // are life:Infinity and Garlic holds a permanent ground ring. Dropping the
+    // weapon instances alone orphaned those forever, so a re-loadout stacked
+    // ghost blades and a stale aura ring on top of the new ones.
+    this.projectiles.clear();
+    this.groundRings.clear();
     if (!this.addWeapon(startingWeaponId)) this.addWeapon(STARTING_WEAPON_ID);
   }
 }

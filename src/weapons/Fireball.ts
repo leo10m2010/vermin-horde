@@ -1,9 +1,8 @@
 import type { Weapon, WeaponContext } from './WeaponBase';
 import { VisualCache } from './WeaponBase';
+import { effectAt } from './WeaponProgression';
 
 const RANGE = 14;
-const BASE_COOLDOWN = 1.6;
-const BASE_DAMAGE = 16;
 const BASE_SPEED = 6;
 const SPLASH_FRACTION = 0.6;
 const TURN_RATE = 5; // rad/s max steering toward target while in flight
@@ -20,17 +19,20 @@ export class FireballWeapon implements Weapon {
   readonly evolutionRequiresPassive = 'passive_damage';
 
   private readonly visualId: number;
+  /** Evolved Inferno Core: blue-white heat instead of orange flame. */
+  private readonly evolvedVisualId: number;
   private cooldown = 0;
   /** projectile index -> tracked target enemy index, for in-flight homing. */
   private readonly homing = new Map<number, number>();
 
   constructor(visuals: VisualCache, private readonly weaponNumericId: number) {
-    this.visualId = visuals.get('fireball', 0.65, [1, 1, 1], false);
+    this.visualId = visuals.get('fireball', 0.8, [1, 1, 1], false);
+    this.evolvedVisualId = visuals.get('fireball_evo', 1.05, [1, 1, 1], false);
   }
 
-  private aoeRadius(ctx: WeaponContext): number {
-    const base = (2 + 0.1 * (this.level - 1)) * (this.evolved ? 1.5 : 1);
-    return base * ctx.stats.areaMultiplier;
+  /** Explosion radius. Public so the showcase/tests can compare it against the drawn blast. */
+  aoeRadius(ctx: WeaponContext): number {
+    return (effectAt(this.id, this.level, this.evolved).radius ?? 2) * ctx.stats.areaMultiplier;
   }
 
   update(ctx: WeaponContext): void {
@@ -58,15 +60,15 @@ export class FireballWeapon implements Weapon {
     const target = ctx.enemies.queryNearest(ctx.playerX, ctx.playerZ, RANGE);
     if (target === -1) return;
 
-    this.cooldown = Math.max(0.9, BASE_COOLDOWN - 0.06 * (this.level - 1)) * (this.evolved ? 0.7 : 1) * ctx.stats.cooldownMultiplier;
+    this.cooldown = effectAt(this.id, this.level, this.evolved).cooldown * ctx.stats.cooldownMultiplier;
 
     const dx = ctx.enemies.posX[target] - ctx.playerX;
     const dz = ctx.enemies.posZ[target] - ctx.playerZ;
     const dist = Math.sqrt(dx * dx + dz * dz) || 1;
     const speed = BASE_SPEED * ctx.stats.projectileSpeedMultiplier;
 
-    const index = ctx.projectiles.spawn(this.visualId, ctx.playerX, ctx.playerZ, (dx / dist) * speed, (dz / dist) * speed, {
-      damage: (BASE_DAMAGE + 2.4 * (this.level - 1)) * (this.evolved ? 1.3 : 1) * ctx.stats.damageMultiplier,
+    const index = ctx.projectiles.spawn(this.evolved ? this.evolvedVisualId : this.visualId, ctx.playerX, ctx.playerZ, (dx / dist) * speed, (dz / dist) * speed, {
+      damage: effectAt(this.id, this.level, this.evolved).damage * ctx.stats.damageMultiplier,
       radius: 0.5,
       pierce: 0,
       life: 3,
@@ -83,7 +85,7 @@ export class FireballWeapon implements Weapon {
     for (let i = 0; i < count; i++) {
       const idx = buffer[i];
       if (idx === hitEnemyIndex) continue; // avoid double-dipping the primary target
-      ctx.enemies.damage(idx, splashDamage, false);
+      ctx.enemies.damage(idx, splashDamage, false, this.id);
     }
     if (this.evolved) {
       // Evolved inferno sears a little life back into the caster on every direct hit.

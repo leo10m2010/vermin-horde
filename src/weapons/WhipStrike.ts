@@ -1,116 +1,177 @@
 import { gameEvents } from '../core/EventBus';
 import type { Weapon, WeaponContext } from './WeaponBase';
 import { VisualCache } from './WeaponBase';
-
-const BASE_COOLDOWN = 1.0;
-const BASE_DAMAGE = 10;
-const BASE_REACH = 3.2; // half-length of the band along X (the horizontal facing axis), both directions
-const BASE_HALF_WIDTH = 1.15; // half-extent of the band along Z (fixed vertical thickness, never rotates)
-const SLASH_VISUAL_LIFE = 0.14;
-const EVOLVED_KNOCKBACK_DISTANCE = 0.9; // evolved-only: instant push-back applied to every enemy struck
-const HORIZONTAL_FACING_THRESHOLD = 0.6; // min |playerVX| (world units/s) before horizontalFacing updates
+import { effectAt } from './WeaponProgression';
 
 /**
- * Melee weapon: no projectile hit-testing - directly damages every enemy
- * inside a short rectangular band that is ALWAYS horizontal in world space
- * (extends along X, fixed thickness along Z) - it only ever mirrors
- * left/right, it never rotates to chase the player's full movement vector.
- * `horizontalFacing` (+1 right / -1 left) is the only directional state this
- * weapon reads, and it only updates from the player's horizontal (X) speed
- * component - moving purely up/down (Z-only) or diagonally never touches it,
- * so walking north with a prior rightward facing keeps striking right.
- * Progression is the whole point of this weapon's identity: Lv1 only ever
- * hits on the facing side; reaching Lv2 visibly unlocks the mirrored strike
- * on the other side too (mirrors real VS's whip, which swings through the
- * character once upgraded).
+ * WHIP STRIKE - FIXED HORIZONTAL SIDE -> BOTH SIDES.
+ *
+ * This weapon's direction is a CONSTANT. It always lashes toward world +X
+ * ("right" on screen) at Lv1, and adds the mirrored -X lash at Lv2. Player
+ * movement is not an input to it in any form:
+ *
+ *   - `ctx.playerVX` / `ctx.playerVZ` are never read.
+ *   - there is no `facing`, `horizontalFacing` or `lastDirection` state.
+ *   - walking up, down, left, right or diagonally changes nothing.
+ *
+ * Lv1 always:      P =====>
+ * Lv2 onward:  <===== P =====>
+ *
+ * (The previous implementation flipped sides from `playerVX` past a deadzone,
+ * which is exactly the movement dependency this weapon must not have.)
+ *
+ * HITBOX == ANIMATION. Each lash is one explicit rectangular band built by
+ * `strikeBand()`, and the slash sprite for that lash is spawned centred on
+ * that same band. There is no single "wide band" that damages both sides
+ * while only one side animates: two lashes means two separate bands and two
+ * separate sprites, so what you see hit is what got hit.
  */
+
+const FIXED_SIDE = 1 as const; // +1 = world +X. A constant, never reassigned.
+const SLASH_VISUAL_LIFE = 0.22;
+/**
+ * The mirrored Lv2 lash lands slightly after the primary one. Purely a
+ * readability beat (the spec allows 40-80ms) - and because BOTH its damage
+ * and its sprite are deferred together, the hitbox still matches the
+ * animation exactly. Mechanically it is still one attack: one cooldown, one
+ * `weaponFired` event.
+ */
+const BACK_LASH_DELAY = 0.06;
+const EVOLVED_KNOCKBACK_DISTANCE = 0.9;
+
+interface PendingLash {
+  at: number; // ctx.elapsed timestamp when this lash resolves
+  side: 1 | -1;
+  damage: number;
+  reach: number;
+  halfWidth: number;
+}
+
 export class WhipStrikeWeapon implements Weapon {
   readonly id = 'whip_strike';
   readonly name = 'Whip Strike';
   level = 1;
   readonly maxLevel = 8;
   evolved = false;
-  readonly handlesOwnHits = true; // damages directly; the slash visual is a life-limited decorative instance only
-  /** Evolves into a longer, harder-hitting lash once the player also holds Vitality Ring (health passive). */
+  readonly handlesOwnHits = true;
   readonly evolutionRequiresPassive = 'passive_health';
 
   private readonly visualId: number;
+  /** Evolved Serpent's Coil: venom-green lash. */
+  private readonly evolvedVisualId: number;
   private cooldown = 0;
-  private horizontalFacing: 1 | -1 = 1;
   private readonly hitBuffer: number[] = [];
+  private readonly pending: PendingLash[] = [];
+  /** Live slash sprites, kept anchored to the player for their short life (see anchorSlashes). */
+  private readonly liveSlashes: Array<{ index: number; side: 1 | -1; reach: number }> = [];
 
   constructor(visuals: VisualCache, private readonly weaponNumericId: number) {
-    this.visualId = visuals.get('whip_slash', 1.4, [1, 1, 1], false);
+    this.visualId = visuals.get('whip_slash', 1.9, [1, 1, 1], false);
+    this.evolvedVisualId = visuals.get('whip_slash_evo', 1.9, [1, 1, 1], false);
+  }
+
+  /** How many horizontal sides this level strikes: 1 (fixed side) or 2 (both). */
+  sideCount(): number {
+    return effectAt(this.id, this.level, this.evolved).sides ?? 1;
   }
 
   update(ctx: WeaponContext): void {
-    // HORIZONTAL FACING ONLY: reads just the X component of movement, and
-    // only past a deadzone threshold. Moving purely vertically (Z) or too
-    // slowly along X leaves horizontalFacing exactly where it was.
-    if (ctx.playerVX > HORIZONTAL_FACING_THRESHOLD) this.horizontalFacing = 1;
-    else if (ctx.playerVX < -HORIZONTAL_FACING_THRESHOLD) this.horizontalFacing = -1;
+    this.anchorSlashes(ctx);
+    this.resolvePending(ctx);
 
     this.cooldown -= ctx.dt;
     if (this.cooldown > 0) return;
-    this.cooldown = Math.max(0.35, BASE_COOLDOWN - 0.04 * (this.level - 1)) * (this.evolved ? 0.75 : 1) * ctx.stats.cooldownMultiplier;
 
-    const reach = (BASE_REACH + 0.12 * (this.level - 1)) * (this.evolved ? 1.35 : 1) * ctx.stats.areaMultiplier;
-    const halfWidth = (BASE_HALF_WIDTH + 0.05 * (this.level - 1)) * ctx.stats.areaMultiplier;
-    const damage = (BASE_DAMAGE + 1.9 * (this.level - 1)) * (this.evolved ? 1.4 : 1) * ctx.stats.damageMultiplier;
+    const e = effectAt(this.id, this.level, this.evolved);
+    this.cooldown = e.cooldown * ctx.stats.cooldownMultiplier;
 
-    // Lv1 only ever strikes on the facing side; the mirrored side is a Lv2+ unlock so the
-    // upgrade reads as a visible new attack, not a hidden number change.
-    const hitsBothSides = this.level >= 2;
+    const reach = (e.radius ?? 3.2) * ctx.stats.areaMultiplier;
+    const halfWidth = (e.halfWidth ?? 1.15) * ctx.stats.areaMultiplier;
+    const damage = e.damage * ctx.stats.damageMultiplier;
 
+    // Primary lash: the fixed side, immediately.
+    this.lash(ctx, FIXED_SIDE, damage, reach, halfWidth);
+
+    // Lv2+ unlocks the mirrored lash, queued a beat later.
+    if ((e.sides ?? 1) >= 2) {
+      this.pending.push({ at: ctx.elapsed + BACK_LASH_DELAY, side: -FIXED_SIDE as -1, damage, reach, halfWidth });
+    }
+
+    gameEvents.emit('weaponFired', { weaponId: this.id, x: ctx.playerX, z: ctx.playerZ });
+  }
+
+  /**
+   * A lash emanates from the wielder, so its sprite rides with the player for
+   * its (very short) life instead of being left behind in world space as the
+   * player walks on - which both looks detached and would break the
+   * "animation sits exactly on the hitbox" guarantee, since the band is
+   * always measured from the player's CURRENT position.
+   */
+  private anchorSlashes(ctx: WeaponContext): void {
+    for (let i = this.liveSlashes.length - 1; i >= 0; i--) {
+      const s = this.liveSlashes[i];
+      if (!ctx.projectiles.alive[s.index]) {
+        this.liveSlashes.splice(i, 1);
+        continue;
+      }
+      ctx.projectiles.setPosition(s.index, ctx.playerX + s.side * s.reach * 0.5, ctx.playerZ);
+    }
+  }
+
+  private resolvePending(ctx: WeaponContext): void {
+    for (let i = this.pending.length - 1; i >= 0; i--) {
+      const p = this.pending[i];
+      if (ctx.elapsed < p.at) continue;
+      this.lash(ctx, p.side, p.damage, p.reach, p.halfWidth);
+      this.pending.splice(i, 1);
+    }
+  }
+
+  /**
+   * One lash on `side`: damages exactly the band described by
+   * `strikeBand(side)` and spawns the slash sprite centred on that same band,
+   * mirrored to match. Nothing outside the band is touched.
+   */
+  private lash(ctx: WeaponContext, side: 1 | -1, damage: number, reach: number, halfWidth: number): void {
+    const band = strikeBand(ctx.playerX, ctx.playerZ, side, reach, halfWidth);
+
+    // Query a circle that comfortably contains the band, then reject anything
+    // outside the rectangle itself.
     const queryRadius = Math.sqrt(reach * reach + halfWidth * halfWidth);
     const count = ctx.enemies.queryRadius(ctx.playerX, ctx.playerZ, queryRadius, this.hitBuffer);
-    let hitAny = false;
     for (let i = 0; i < count; i++) {
       const enemyIndex = this.hitBuffer[i];
-      const dx = ctx.enemies.posX[enemyIndex] - ctx.playerX;
-      const dz = ctx.enemies.posZ[enemyIndex] - ctx.playerZ;
-      // Pure horizontal band: `along` is the signed X distance relative to
-      // facing (never mixes in dz), `across` is the raw Z offset (never
-      // rotates with facing) - moving up/down/diagonally cannot tilt this.
-      const along = dx * this.horizontalFacing;
-      const across = dz;
-      if (along < 0 && !hitsBothSides) continue; // Lv1: facing-side only
-      if (Math.abs(along) > reach || Math.abs(across) > halfWidth) continue;
+      const ex = ctx.enemies.posX[enemyIndex];
+      const ez = ctx.enemies.posZ[enemyIndex];
+      if (ex < band.minX || ex > band.maxX || ez < band.minZ || ez > band.maxZ) continue;
       const crit = ctx.rng() < ctx.stats.critChance;
       const dmg = damage * (crit ? ctx.stats.critMultiplier : 1);
-      ctx.enemies.damage(enemyIndex, dmg, crit);
-      hitAny = true;
+      ctx.enemies.damage(enemyIndex, dmg, crit, this.id);
       if (this.evolved) {
-        // Evolved lash knocks struck enemies back along the hit vector instead of just damaging them in place.
-        const pushDist = Math.sqrt(dx * dx + dz * dz) || 1;
-        ctx.enemies.posX[enemyIndex] += (dx / pushDist) * EVOLVED_KNOCKBACK_DISTANCE;
-        ctx.enemies.posZ[enemyIndex] += (dz / pushDist) * EVOLVED_KNOCKBACK_DISTANCE;
+        const dx = ex - ctx.playerX;
+        const dz = ez - ctx.playerZ;
+        const dist = Math.sqrt(dx * dx + dz * dz) || 1;
+        ctx.enemies.posX[enemyIndex] += (dx / dist) * EVOLVED_KNOCKBACK_DISTANCE;
+        ctx.enemies.posZ[enemyIndex] += (dz / dist) * EVOLVED_KNOCKBACK_DISTANCE;
       }
     }
 
-    // Decorative slash instance(s), both purely horizontal offsets from the
-    // player (Z untouched): facing side always, mirrored side only once
-    // Lv2+ unlocks it - so the visual swing matches exactly what can and
-    // can't be hit, and explicitly represents the two distinct hit zones
-    // instead of implying one continuous band.
-    ctx.projectiles.spawn(this.visualId, ctx.playerX + this.horizontalFacing * reach * 0.5, ctx.playerZ, 0, 0, {
+    // Slash sprite centred on the band it just damaged, mirrored per side.
+    const index = ctx.projectiles.spawn(this.evolved ? this.evolvedVisualId : this.visualId, ctx.playerX + side * reach * 0.5, ctx.playerZ, 0, 0, {
       damage: 0,
       radius: 0,
       pierce: 0,
       life: SLASH_VISUAL_LIFE,
       weaponId: this.weaponNumericId,
     });
-    if (hitsBothSides) {
-      ctx.projectiles.spawn(this.visualId, ctx.playerX - this.horizontalFacing * reach * 0.5, ctx.playerZ, 0, 0, {
-        damage: 0,
-        radius: 0,
-        pierce: 0,
-        life: SLASH_VISUAL_LIFE,
-        weaponId: this.weaponNumericId,
-      });
+    if (index !== -1) {
+      // Scale the sprite to the band's real length so the drawn lash grows
+      // with `reach` upgrades instead of staying a fixed-size decal over a
+      // band that has quietly got longer.
+      ctx.projectiles.setSize(index, reach * 1.05);
+      ctx.projectiles.setFacing(index, side);
+      this.liveSlashes.push({ index, side, reach });
     }
-
-    if (hitAny) gameEvents.emit('weaponFired', { weaponId: this.id, x: ctx.playerX, z: ctx.playerZ });
   }
 
   levelUp(): void {
@@ -120,4 +181,26 @@ export class WhipStrikeWeapon implements Weapon {
   evolve(): void {
     this.evolved = true;
   }
+}
+
+/**
+ * The exact rectangle one lash damages, in world space. Exported so tests
+ * (and the debug showcase) can assert the hitbox directly rather than
+ * inferring it from which enemies happened to die.
+ */
+export function strikeBand(
+  playerX: number,
+  playerZ: number,
+  side: 1 | -1,
+  reach: number,
+  halfWidth: number,
+): { minX: number; maxX: number; minZ: number; maxZ: number } {
+  const nearX = playerX;
+  const farX = playerX + side * reach;
+  return {
+    minX: Math.min(nearX, farX),
+    maxX: Math.max(nearX, farX),
+    minZ: playerZ - halfWidth,
+    maxZ: playerZ + halfWidth,
+  };
 }

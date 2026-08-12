@@ -1,10 +1,10 @@
 import { WORLD } from '../core/Constants';
 import type { Weapon, WeaponContext } from './WeaponBase';
 import { VisualCache } from './WeaponBase';
+import { effectAt } from './WeaponProgression';
 
 const RANGE = 12;
 const BASE_COOLDOWN = 1.0;
-const BASE_DAMAGE = 6;
 const BASE_SPEED = 16;
 const WANDER_DURATION = 4; // total lifetime once launched
 const DIRECTION_CHANGE_INTERVAL = 0.6;
@@ -29,16 +29,19 @@ export class RuneShardWeapon implements Weapon {
   readonly evolutionRequiresPassive = 'passive_speed';
 
   private readonly visualId: number;
+  /** Evolved sprite - an evolution must be visible, not a tint. */
+  private readonly evolvedVisualId: number;
   private cooldown = 0;
   /** projectile index -> elapsed time at which it should next pick a new heading. */
   private readonly nextTurnAt = new Map<number, number>();
 
   constructor(visuals: VisualCache, private readonly weaponNumericId: number) {
     this.visualId = visuals.get('proj_rune', 0.35, [1, 1, 1], true);
+    this.evolvedVisualId = visuals.get('proj_rune_evo', 0.35, [1, 1, 1], false);
   }
 
   private pierce(): number {
-    const base = 6 + Math.floor((this.level - 1) / 2);
+    const base = effectAt(this.id, this.level, this.evolved).pierce ?? 6;
     return this.evolved ? base + 3 : base;
   }
 
@@ -60,7 +63,8 @@ export class RuneShardWeapon implements Weapon {
       angle = ctx.rng() * Math.PI * 2;
     }
 
-    const damage = (BASE_DAMAGE + 0.8 * (this.level - 1)) * (this.evolved ? 1.3 : 1) * ctx.stats.damageMultiplier;
+    const e = effectAt(this.id, this.level, this.evolved);
+    const damage = e.damage * ctx.stats.damageMultiplier;
     const life = WANDER_DURATION * ctx.stats.durationMultiplier;
 
     this.launchShard(ctx, angle, speed, damage, life);
@@ -74,7 +78,7 @@ export class RuneShardWeapon implements Weapon {
   }
 
   private launchShard(ctx: WeaponContext, angle: number, speed: number, damage: number, life: number): void {
-    const index = ctx.projectiles.spawn(this.visualId, ctx.playerX, ctx.playerZ, Math.cos(angle) * speed, Math.sin(angle) * speed, {
+    const index = ctx.projectiles.spawn(this.evolved ? this.evolvedVisualId : this.visualId, ctx.playerX, ctx.playerZ, Math.cos(angle) * speed, Math.sin(angle) * speed, {
       damage,
       radius: 0.28,
       pierce: this.pierce(),

@@ -54,6 +54,13 @@ export class ProjectileManager {
   /** Per-instance visual-only Y offset added on top of LAYER_Y.projectile - lets a weapon fake a 2.5D parabolic
    * arc (Axe's throw, Hex Flask's lob) purely for rendering while collisions stay flat on X/Z. Reset to 0 on spawn. */
   readonly heightOffset = new Float32Array(this.capacity);
+  /** Per-instance horizontal mirror override (+1/-1); 0 (the default) means "derive it from velocity/spin".
+   * Needed by zero-velocity visuals like the whip slash, whose side is decided by the weapon, not by motion. */
+  readonly facingOverride = new Int8Array(this.capacity);
+  /** Per-instance extra spin offset in radians, for weapons that want a specific blade/axe orientation. */
+  readonly spinOffset = new Float32Array(this.capacity);
+  /** Per-instance render opacity (1 = opaque). Lets a weapon fade a visual - a toss shadow, an expiring zone - without a second batch. */
+  readonly alphaOverride = new Float32Array(this.capacity).fill(1);
 
   private readonly visuals: ProjectileVisual[] = [];
 
@@ -91,7 +98,26 @@ export class ProjectileManager {
     this.spin[index] = 0;
     this.sizeOverride[index] = -1;
     this.heightOffset[index] = 0;
+    this.facingOverride[index] = 0;
+    this.spinOffset[index] = 0;
+    this.alphaOverride[index] = 1;
     return index;
+  }
+
+  /** Swap this instance's sprite mid-flight - used by Arc Cross to visibly change on the RETURN leg. */
+  setVisual(index: number, visualId: number): void {
+    this.visualId[index] = visualId;
+    this.animTimer[index] = 0;
+  }
+
+  /** Force this instance's horizontal mirror (+1 right / -1 left) instead of deriving it from velocity. */
+  setFacing(index: number, facing: 1 | -1): void {
+    this.facingOverride[index] = facing;
+  }
+
+  /** Per-instance render opacity for this frame (1 = opaque). Reset to 1 on spawn; call every frame while fading. */
+  setAlpha(index: number, alpha: number): void {
+    this.alphaOverride[index] = alpha;
   }
 
   setVelocity(index: number, vx: number, vz: number): void {
@@ -166,7 +192,14 @@ export class ProjectileManager {
       }
 
       if (visual.spins) this.spin[i] += dt * 12;
-      const facing = visual.spins ? Math.sign(Math.cos(this.spin[i])) || 1 : this.velX[i] >= 0 ? 1 : -1;
+      const facing =
+        this.facingOverride[i] !== 0
+          ? this.facingOverride[i]
+          : visual.spins
+            ? Math.sign(Math.cos(this.spin[i] + this.spinOffset[i])) || 1
+            : this.velX[i] >= 0
+              ? 1
+              : -1;
       const size = this.sizeOverride[i] >= 0 ? this.sizeOverride[i] : visual.spriteSize;
 
       this.batch.set(
@@ -180,7 +213,7 @@ export class ProjectileManager {
         visual.tint[0],
         visual.tint[1],
         visual.tint[2],
-        1,
+        this.alphaOverride[i],
         0,
       );
     }

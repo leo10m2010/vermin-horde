@@ -10,6 +10,8 @@ export interface UpgradeOptionLike {
   fromLevel?: number;
   toLevel?: number;
   directionLabel?: string;
+  /** Concrete before/after readout, e.g. "2 → 3 proyectiles". Derived from the weapon's own progression table. */
+  detail?: string;
 }
 
 const UPGRADE_KIND_LABELS: Record<string, string> = {
@@ -57,6 +59,13 @@ interface RunSummaryStats {
   kills: number;
   level: number;
   goldEarned?: number;
+  /**
+   * Share of total run damage per weapon, biggest first. This is the single
+   * most build-legible number a survivors run can show the player - "Fireball
+   * 31%, Garlic 24%" tells them what actually carried them far better than
+   * kills or level do.
+   */
+  damageByPower?: Array<{ id: string; name: string; percent: number }>;
 }
 
 function formatClock(totalSeconds: number): string {
@@ -87,6 +96,8 @@ export class UiRoot {
   private readonly victoryStatsEl: HTMLElement;
   private readonly bossBannerEl: HTMLElement | null;
   private bossBannerTimer: number | undefined;
+  private evolutionEl!: HTMLElement;
+  private evolutionTimer: number | undefined;
 
   constructor(
     private readonly root: HTMLElement,
@@ -174,6 +185,65 @@ export class UiRoot {
     });
 
     this.bossBannerEl = document.querySelector<HTMLElement>('#boss-banner');
+
+    // Evolution banner: its own element rather than the generic toast, so the
+    // moment gets a real presentation - flash, icon, base name struck through
+    // into the evolved name - without blocking the run. Total ~1.6s, and the
+    // simulation keeps running underneath the whole time.
+    this.evolutionEl = document.createElement('div');
+    this.evolutionEl.className = 'ui-evolution';
+    this.evolutionEl.hidden = true;
+    this.root.append(this.evolutionEl);
+  }
+
+  /**
+   * Plays the weapon-evolution flourish. Deliberately short and non-blocking:
+   * an evolution should feel like a reward, not an interruption.
+   */
+  showEvolution(info: { id: string; fromName: string; toName: string }): void {
+    window.clearTimeout(this.evolutionTimer);
+    this.evolutionEl.replaceChildren();
+
+    const flash = document.createElement('div');
+    flash.className = 'ui-evolution-flash';
+
+    const card = document.createElement('div');
+    card.className = 'ui-evolution-card';
+
+    const icon = document.createElement('img');
+    icon.className = 'ui-evolution-icon';
+    icon.src = getUpgradeIconDataUrl(info.id);
+    icon.alt = '';
+
+    const text = document.createElement('div');
+    text.className = 'ui-evolution-text';
+    const tag = document.createElement('div');
+    tag.className = 'ui-evolution-tag';
+    tag.textContent = t('EVOLUCIÓN');
+    const names = document.createElement('div');
+    names.className = 'ui-evolution-names';
+    const from = document.createElement('span');
+    from.className = 'ui-evolution-from';
+    from.textContent = t(info.fromName);
+    const arrow = document.createElement('span');
+    arrow.className = 'ui-evolution-arrow';
+    arrow.textContent = '→';
+    const to = document.createElement('span');
+    to.className = 'ui-evolution-to';
+    to.textContent = t(info.toName);
+    names.append(from, arrow, to);
+    text.append(tag, names);
+
+    card.append(icon, text);
+    this.evolutionEl.append(flash, card);
+    this.evolutionEl.hidden = false;
+    // Restart the CSS animation on a repeat evolution.
+    void this.evolutionEl.offsetWidth;
+    this.evolutionEl.classList.add('ui-evolution--playing');
+    this.evolutionTimer = window.setTimeout(() => {
+      this.evolutionEl.classList.remove('ui-evolution--playing');
+      this.evolutionEl.hidden = true;
+    }, 1700);
   }
 
   showMainMenu(): void {
@@ -197,7 +267,16 @@ export class UiRoot {
   }
 
   showUpgradePicker(options: UpgradeOptionLike[]): void {
-    this.upgradeGridEl.replaceChildren(...options.map((option) => this.buildUpgradeCard(option)));
+    const cards = options.map((option, i) => {
+      const card = this.buildUpgradeCard(option);
+      // Staggered entrance (~60ms apart) so the row reads left-to-right
+      // instead of all three snapping in at once. Driven by a CSS custom
+      // property rather than JS timers, so `prefers-reduced-motion` in
+      // styles.css can flatten it to zero without any JS branch.
+      card.style.setProperty('--card-index', String(i));
+      return card;
+    });
+    this.upgradeGridEl.replaceChildren(...cards);
     this.show(this.upgradeEl);
   }
 
@@ -360,7 +439,53 @@ export class UiRoot {
       this.buildStatRow(t('Nivel alcanzado'), String(stats.level)),
     ];
     if (stats.goldEarned !== undefined) rows.push(this.buildStatRow(t('Oro ganado'), String(stats.goldEarned)));
+    if (stats.damageByPower && stats.damageByPower.length > 0) {
+      rows.push(this.buildDamageBreakdown(stats.damageByPower));
+    }
     return rows;
+  }
+
+  /** Ranked damage-share bars, one row per weapon that contributed. */
+  private buildDamageBreakdown(entries: Array<{ id: string; name: string; percent: number }>): HTMLElement {
+    const wrap = document.createElement('div');
+    wrap.className = 'ui-damage-breakdown';
+
+    const heading = document.createElement('div');
+    heading.className = 'ui-damage-heading';
+    heading.textContent = t('Daño por poder');
+    wrap.append(heading);
+
+    for (const entry of entries) {
+      const row = document.createElement('div');
+      row.className = 'ui-damage-row';
+
+      const icon = document.createElement('img');
+      icon.className = 'ui-damage-icon';
+      icon.src = getUpgradeIconDataUrl(entry.id);
+      icon.alt = '';
+      row.append(icon);
+
+      const name = document.createElement('span');
+      name.className = 'ui-damage-name';
+      name.textContent = t(entry.name);
+      row.append(name);
+
+      const bar = document.createElement('span');
+      bar.className = 'ui-damage-bar';
+      const fill = document.createElement('span');
+      fill.className = 'ui-damage-fill';
+      fill.style.width = `${Math.max(2, Math.round(entry.percent))}%`;
+      bar.append(fill);
+      row.append(bar);
+
+      const pct = document.createElement('span');
+      pct.className = 'ui-damage-pct';
+      pct.textContent = `${Math.round(entry.percent)}%`;
+      row.append(pct);
+
+      wrap.append(row);
+    }
+    return wrap;
   }
 
   private buildStatRow(label: string, value: string): HTMLElement {
@@ -528,6 +653,16 @@ export class UiRoot {
     desc.className = 'ui-upgrade-desc';
     desc.textContent = t(option.description);
     card.append(desc);
+
+    // Secondary line: the literal numbers behind the headline ("2 → 3
+    // proyectiles"). Comes from the weapon's progression table, so it is the
+    // same value the simulation will use after the pick.
+    if (option.detail) {
+      const detail = document.createElement('div');
+      detail.className = 'ui-upgrade-detail';
+      detail.textContent = t(option.detail);
+      card.append(detail);
+    }
 
     card.addEventListener('click', () => {
       this.callbacks.onUpgradeChosen(option);

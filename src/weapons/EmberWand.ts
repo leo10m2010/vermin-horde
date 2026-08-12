@@ -1,9 +1,9 @@
 import type { Weapon, WeaponContext } from './WeaponBase';
 import { VisualCache } from './WeaponBase';
+import { effectAt } from './WeaponProgression';
 
 const RANGE = 16;
 const BASE_COOLDOWN = 2.2;
-const BASE_DAMAGE = 24;
 const BASE_SPEED = 8;
 
 /** Fires at a RANDOM alive enemy in range (not nearest) - slow, heavy single-target hit. */
@@ -17,11 +17,14 @@ export class EmberWandWeapon implements Weapon {
   readonly evolutionRequiresPassive = 'passive_crit';
 
   private readonly visualId: number;
+  /** Evolved sprite - an evolution must be visible, not a tint. */
+  private readonly evolvedVisualId: number;
   private cooldown = 0;
   private readonly candidateBuffer: number[] = [];
 
   constructor(visuals: VisualCache, private readonly weaponNumericId: number) {
     this.visualId = visuals.get('proj_ember', 0.6, [1, 1, 1], false);
+    this.evolvedVisualId = visuals.get('proj_ember_evo', 0.6, [1, 1, 1], false);
   }
 
   update(ctx: WeaponContext): void {
@@ -40,8 +43,9 @@ export class EmberWandWeapon implements Weapon {
 
     const speed = BASE_SPEED * ctx.stats.projectileSpeedMultiplier;
     // Balance: was 1.4 - trimmed since the second ember already doubles damage output.
-    const damage = (BASE_DAMAGE + 3.2 * (this.level - 1)) * (this.evolved ? 1.2 : 1) * ctx.stats.damageMultiplier;
-    const pierce = this.evolved ? 2 : 0;
+    const e = effectAt(this.id, this.level, this.evolved);
+    const damage = e.damage * ctx.stats.damageMultiplier;
+    const pierce = e.pierce ?? 0;
     const life = 2.5 * ctx.stats.durationMultiplier;
 
     this.fireAt(ctx, firstTarget, damage, speed, pierce, life);
@@ -60,7 +64,7 @@ export class EmberWandWeapon implements Weapon {
     const dx = ctx.enemies.posX[target] - ctx.playerX;
     const dz = ctx.enemies.posZ[target] - ctx.playerZ;
     const dist = Math.sqrt(dx * dx + dz * dz) || 1;
-    ctx.projectiles.spawn(this.visualId, ctx.playerX, ctx.playerZ, (dx / dist) * speed, (dz / dist) * speed, {
+    ctx.projectiles.spawn(this.evolved ? this.evolvedVisualId : this.visualId, ctx.playerX, ctx.playerZ, (dx / dist) * speed, (dz / dist) * speed, {
       damage,
       radius: 0.55,
       pierce,

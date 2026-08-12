@@ -1,8 +1,7 @@
 import type { Weapon, WeaponContext } from './WeaponBase';
 import { VisualCache } from './WeaponBase';
+import { effectAt } from './WeaponProgression';
 
-const BASE_COOLDOWN = 0.4;
-const BASE_DAMAGE = 4;
 const BASE_SPEED = 14;
 const SPREAD_STEP = (8 * Math.PI) / 180; // 8deg between adjacent knives
 const EVOLVED_SPREAD_STEP = (22 * Math.PI) / 180; // evolved-only: wide fan instead of a narrow forward cone
@@ -25,26 +24,21 @@ export class KnifeWeapon implements Weapon {
   readonly evolutionRequiresPassive = 'passive_proj_speed';
 
   private readonly visualId: number;
+  /** Evolved Thousand Blades: cyan spectral daggers, visibly not the same weapon. */
+  private readonly evolvedVisualId: number;
   private cooldown = 0;
   private facingX = 1;
   private facingZ = 0;
 
   constructor(visuals: VisualCache, private readonly weaponNumericId: number) {
     // Thrown dagger reads better tumbling in flight (VS-style kunai) than static-facing.
-    this.visualId = visuals.get('proj_knife', 0.4, [1, 1, 1], true);
+    this.visualId = visuals.get('proj_knife', 0.55, [1, 1, 1], false);
+    this.evolvedVisualId = visuals.get('proj_knife_evo', 0.65, [1, 1, 1], false);
   }
 
-  /** 1 at Lv1-3, 2 at Lv4-6, 3 at Lv7-8 - own-level milestones, before evolve/Amount are added. */
-  private ownCount(): number {
-    let count = 1;
-    if (this.level >= 2) count += 1;
-    if (this.level >= 4) count += 1;
-    if (this.level >= 7) count += 1;
-    return count;
-  }
-
-  private pierce(): number {
-    return this.level >= 6 ? 1 : 0;
+  /** Knives per throw at this level (Lv1:1, Lv2:2, Lv4:3, Lv7:4), before Amount. Public for tests/showcase. */
+  knifeCount(): number {
+    return effectAt(this.id, this.level, this.evolved).projectiles ?? 1;
   }
 
   update(ctx: WeaponContext): void {
@@ -58,24 +52,21 @@ export class KnifeWeapon implements Weapon {
     this.cooldown -= ctx.dt;
     if (this.cooldown > 0) return;
 
-    // Balance: Lv5 no longer only shaves a flat per-level amount - it also
-    // marks the "-cooldown" milestone the level-up card promises.
-    const lv5Bonus = this.level >= 5 ? 0.05 : 0;
-    this.cooldown = Math.max(0.15, BASE_COOLDOWN - 0.015 * (this.level - 1) - lv5Bonus) * (this.evolved ? 0.75 : 1) * ctx.stats.cooldownMultiplier;
+    const e = effectAt(this.id, this.level, this.evolved);
+    this.cooldown = e.cooldown * ctx.stats.cooldownMultiplier;
 
     const baseAngle = Math.atan2(this.facingZ, this.facingX);
-    const count = this.ownCount() + (this.evolved ? 2 : 0) + Math.max(0, Math.round(ctx.stats.extraProjectiles));
-    const speedBonus = this.level >= 3 ? 1.15 : 1;
-    const damage = (BASE_DAMAGE + 0.6 * (this.level - 1)) * ctx.stats.damageMultiplier;
-    const speed = BASE_SPEED * speedBonus * ctx.stats.projectileSpeedMultiplier;
-    const pierce = this.pierce() + (this.evolved ? 1 : 0);
+    const count = this.knifeCount() + Math.max(0, Math.round(ctx.stats.extraProjectiles));
+    const damage = e.damage * ctx.stats.damageMultiplier;
+    const speed = (e.speed ?? BASE_SPEED) * ctx.stats.projectileSpeedMultiplier;
+    const pierce = e.pierce ?? 0;
     // Evolved knives fan out into a wide barrage instead of a narrow forward cone.
     const spreadStep = this.evolved ? EVOLVED_SPREAD_STEP : SPREAD_STEP;
 
     const mid = (count - 1) / 2;
     for (let i = 0; i < count; i++) {
       const angle = baseAngle + (i - mid) * spreadStep;
-      ctx.projectiles.spawn(this.visualId, ctx.playerX, ctx.playerZ, Math.cos(angle) * speed, Math.sin(angle) * speed, {
+      ctx.projectiles.spawn(this.evolved ? this.evolvedVisualId : this.visualId, ctx.playerX, ctx.playerZ, Math.cos(angle) * speed, Math.sin(angle) * speed, {
         damage,
         radius: 0.3,
         pierce,
