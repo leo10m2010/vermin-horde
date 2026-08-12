@@ -16,6 +16,15 @@ interface BossState {
   typeId: number;
   name: string;
   attackTimer: number;
+  /**
+   * Seconds left of the current attack's wind-up. While > 0 the boss holds
+   * its `special` charge pose; when it hits 0 it snaps to its `attack` pose.
+   * This is purely presentational - it spans the SAME telegraph delay the
+   * attack already used, so nothing about damage, radius or timing changes.
+   */
+  windup: number;
+  /** Length of the strike pose once the wind-up resolves. */
+  strikeDuration: number;
 }
 
 const ELITE_OPTS = { elite: true, hpMult: 6, speedMult: 1.15, scaleMult: 1.4 } as const;
@@ -206,6 +215,8 @@ export class WaveDirector {
       typeId,
       name,
       attackTimer: attackInterval,
+      windup: 0,
+      strikeDuration: 0,
     });
     gameEvents.emit('bossSpawned', { name, x, z });
   }
@@ -216,33 +227,49 @@ export class WaveDirector {
         this.bossStates.delete(index);
         continue;
       }
+
+      // Hold the charge pose for the whole wind-up, then snap to the strike.
+      // A boss that reads as a boss has to visibly commit to its attack -
+      // before this pass the telegraph ring appeared on the ground while the
+      // boss itself just kept walking, which is what made bosses look like
+      // oversized trash mobs.
+      if (state.windup > 0) {
+        state.windup -= dt;
+        if (state.windup <= 0) this.enemies.requestPose(index, 'attack', state.strikeDuration);
+        else this.enemies.requestPose(index, 'special', 0.2);
+      }
+
       state.attackTimer -= dt;
       if (state.attackTimer <= 0) {
         if (state.typeId === this.types.rotKing) {
           state.attackTimer = ROT_KING_ATTACK_INTERVAL;
-          this.triggerRotKingAttack(index, playerX, playerZ);
+          this.triggerRotKingAttack(index, state, playerX, playerZ);
         } else if (state.typeId === this.types.boneColossus) {
           state.attackTimer = BONE_COLOSSUS_ATTACK_INTERVAL;
-          this.triggerBoneColossusAttack(playerX, playerZ);
+          this.triggerBoneColossusAttack(state, playerX, playerZ);
         } else {
           state.attackTimer = DUSKFANG_ATTACK_INTERVAL;
-          this.triggerDuskfangAttack(index, playerX, playerZ);
+          this.triggerDuskfangAttack(index, state, playerX, playerZ);
         }
       }
     }
   }
 
-  private triggerRotKingAttack(index: number, playerX: number, playerZ: number): void {
+  private triggerRotKingAttack(index: number, state: BossState, playerX: number, playerZ: number): void {
     if (this.rng() < 0.5) {
       // Ground slam, centered on the boss itself.
       this.queueTelegraph(this.enemies.posX[index], this.enemies.posZ[index], 4, 1.0, 26, '#ff6a3d');
+      // Scepter goes overhead for the full 1.0s ring, then drives into the ground.
+      state.windup = 1.0;
     } else {
       // Telegraphed circle centered on the player's current position.
       this.queueTelegraph(playerX, playerZ, 2.5, 0.9, 20, '#ff3d6a');
+      state.windup = 0.9;
     }
+    state.strikeDuration = 0.5;
   }
 
-  private triggerBoneColossusAttack(playerX: number, playerZ: number): void {
+  private triggerBoneColossusAttack(state: BossState, playerX: number, playerZ: number): void {
     for (let k = 0; k < 3; k++) {
       const angle = this.rng() * Math.PI * 2;
       const dist = this.rng() * 6;
@@ -251,6 +278,10 @@ export class WaveDirector {
       const delay = 0.8 + k * 0.15;
       this.queueTelegraph(x, z, 2, delay, 18, '#c9c2a8');
     }
+    // Arms stay raised summoning for the first ring's delay, then slam wide as
+    // the shards start landing.
+    state.windup = 0.8;
+    state.strikeDuration = 0.6;
   }
 
   /**
@@ -262,7 +293,13 @@ export class WaveDirector {
    * dodgeable, but punishes standing still since all three converge on the
    * same line.
    */
-  private triggerDuskfangAttack(index: number, playerX: number, playerZ: number): void {
+  private triggerDuskfangAttack(index: number, state: BossState, playerX: number, playerZ: number): void {
+    // windup -> pounce -> landing. The 0.85s wind-up spans the first
+    // telegraph's delay (the hound coils, haunches up, chest to the floor),
+    // then the attack clip carries the pounce and its landing across the two
+    // faster follow-up steps of the combo.
+    state.windup = 0.85;
+    state.strikeDuration = 0.85;
     const bx = this.enemies.posX[index];
     const bz = this.enemies.posZ[index];
     const dx = playerX - bx;

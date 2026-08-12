@@ -18,7 +18,11 @@ export default defineConfig({
   webServer: {
     command: 'npm run dev',
     url: 'http://127.0.0.1:5188',
-    reuseExistingServer: false,
+    // Reuse a dev server that is already up locally (the standard Playwright
+    // idiom); CI always gets a clean one. Previously hardcoded false, which
+    // made the suite unrunnable whenever a dev server was already listening
+    // on 5188.
+    reuseExistingServer: !process.env.CI,
     timeout: 20_000,
   },
   projects: [

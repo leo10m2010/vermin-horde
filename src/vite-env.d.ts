@@ -26,6 +26,8 @@ interface ThreeGameDiagnostics {
     geometries: number;
     textures: number;
   };
+  /** Distinct cells packed into the shared sprite atlas (drives its texture size). */
+  atlasCells: number;
   canvas: {
     clientWidth: number;
     clientHeight: number;
@@ -72,6 +74,19 @@ interface ThreeGameTestHooks {
   forceArcana(): void;
   /** QA helper: pick a roster character by id (see Characters.ts) ahead of the next beginRun()/'active-play', without driving the CharacterSelect UI. */
   selectCharacter(id: string): void;
+  /**
+   * Art-inspection scene: parks one frozen instance of every enemy AND boss
+   * type in a grid with the player among them, suspends wave spawning and
+   * weapon fire, and zooms the camera out to fit the lineup. Returns the
+   * layout (name + world x/z per slot) so a capture script can label it.
+   */
+  enemyShowcase(opts?: { pose?: string; columns?: number; spacing?: number; viewHeight?: number; only?: string[] }): Array<{ name: string; x: number; z: number }>;
+  /** Art-inspection: force every live enemy into one pose ('idle'|'walk'|'attack'|'hit'|'special'|'death'), or null to release. */
+  setEnemyPose(pose: string | null): void;
+  /** QA helper: the pose every live enemy is currently playing, for asserting telegraphs actually fire in real gameplay. */
+  getEnemyAnimStates(): Array<{ name: string; pose: string; isBoss: boolean }>;
+  /** Art-inspection: leave showcase mode and clear the lineup. */
+  exitEnemyShowcase(): void;
 }
 
 interface Window {

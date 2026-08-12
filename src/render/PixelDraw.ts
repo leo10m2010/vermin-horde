@@ -33,14 +33,25 @@ export function drawPixelGrid(
 
   if (outlineColor) {
     ctx.fillStyle = outlineColor;
+    // The halo is stamped at x-1/y-1/x+1/y+1, which for any sprite whose art
+    // touches the edge of its grid lands OUTSIDE this cell - and since every
+    // sprite shares one packed atlas, that painted straight into the
+    // neighbouring cell and showed up in game as a stray dark bar floating
+    // beside an unrelated creature. Clamp every stamp to the grid instead:
+    // an edge-touching sprite simply loses its outline on that one edge,
+    // which is invisible, unlike another sprite's smeared border.
+    const stamp = (x: number, y: number): void => {
+      if (x < 0 || y < 0 || x >= cols || y >= rows) return;
+      ctx.fillRect(Math.round(offsetX + x * px), Math.round(offsetY + y * px), Math.ceil(px), Math.ceil(px));
+    };
     for (let y = 0; y < rows; y++) {
       const row = grid[y];
       for (let x = 0; x < row.length; x++) {
         if (!isFilled(x, y)) continue;
-        if (!isFilled(x, y - 1)) ctx.fillRect(Math.round(offsetX + x * px), Math.round(offsetY + (y - 1) * px), Math.ceil(px), Math.ceil(px));
-        if (!isFilled(x, y + 1)) ctx.fillRect(Math.round(offsetX + x * px), Math.round(offsetY + (y + 1) * px), Math.ceil(px), Math.ceil(px));
-        if (!isFilled(x - 1, y)) ctx.fillRect(Math.round(offsetX + (x - 1) * px), Math.round(offsetY + y * px), Math.ceil(px), Math.ceil(px));
-        if (!isFilled(x + 1, y)) ctx.fillRect(Math.round(offsetX + (x + 1) * px), Math.round(offsetY + y * px), Math.ceil(px), Math.ceil(px));
+        if (!isFilled(x, y - 1)) stamp(x, y - 1);
+        if (!isFilled(x, y + 1)) stamp(x, y + 1);
+        if (!isFilled(x - 1, y)) stamp(x - 1, y);
+        if (!isFilled(x + 1, y)) stamp(x + 1, y);
       }
     }
   }

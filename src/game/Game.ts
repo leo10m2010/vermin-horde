@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { InputController } from '../core/InputController';
 import { Loop } from '../core/Loop';
 import { createOrthoCamera, createRenderer, resizeRenderer } from '../core/Renderer';
-import { CAMERA, DIFFICULTY, PLAYER } from '../core/Constants';
+import { CAMERA, DIFFICULTY, LAYER_Y, PLAYER } from '../core/Constants';
 import { gameEvents } from '../core/EventBus';
 import { createSeededRandom } from '../utils/random';
 import { spriteAtlas } from '../render/SpriteAtlas';
@@ -12,7 +12,7 @@ import { registerWeapon2Sprites } from '../render/SpriteLibraryWeapons2';
 import { createGroundMesh } from '../render/WorldGround';
 import { StageDecor } from '../render/StageDecor';
 import { Player } from '../entities/Player';
-import { EnemyManager } from '../entities/EnemyManager';
+import { EnemyManager, ENEMY_POSES, type EnemyPose } from '../entities/EnemyManager';
 import { ProjectileManager } from '../entities/ProjectileManager';
 import { GemManager } from '../entities/GemManager';
 import { CameraRig } from '../systems/CameraRig';
@@ -41,6 +41,8 @@ import { MenuScene } from '../render/MenuScene';
 
 const VICTORY_SECONDS = DIFFICULTY.rampSeconds; // survive the full escalation arc to win
 const PLAYER_START_INVULN = 0.8;
+/** Fixed camera target for the art-inspection showcase - the lineup is built centred on the world origin. */
+const SHOWCASE_CAMERA_TARGET = new THREE.Vector3(0, 0, 0);
 
 export class Game {
   private readonly renderer: THREE.WebGLRenderer;
@@ -103,6 +105,10 @@ export class Game {
   private pausedForScreenshot = false;
   private reducedMotion = false;
   private godMode = false;
+  /** Art-inspection mode: wave spawning and weapon fire suspended (see the `enemyShowcase` test hook). */
+  private showcaseMode = false;
+  /** Camera framing override while showcasing, so a whole lineup fits on screen. */
+  private showcaseViewHeight = 0;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.renderer = createRenderer(canvas);
@@ -484,7 +490,7 @@ export class Game {
       return;
     }
 
-    resizeRenderer(this.renderer, this.camera, CAMERA.viewHeight);
+    resizeRenderer(this.renderer, this.camera, this.showcaseViewHeight || CAMERA.viewHeight);
 
     const playing = this.state.phase === 'playing';
     if (playing) this.state.run.elapsed += delta;
@@ -504,20 +510,28 @@ export class Game {
       // (inside enemies.update() below) rolls its Gilded Cache chance against
       // the current build's luck rather than last frame's.
       this.treasures.setLuck(this.state.stats.luck);
-      this.waveDirector.update(animDelta, this.state.run.elapsed, this.player.position.x, this.player.position.z, this.state.stats.luck);
+      // Showcase mode (see the `enemyShowcase` hook) suspends wave spawning
+      // and weapon fire so the inspection lineup isn't buried by a horde or
+      // shot to pieces mid-comparison. Enemies themselves keep updating, so
+      // their animations still run.
+      if (!this.showcaseMode) {
+        this.waveDirector.update(animDelta, this.state.run.elapsed, this.player.position.x, this.player.position.z, this.state.stats.luck);
+      }
 
       const { contactDamage } = this.enemies.update(animDelta, this.player.position.x, this.player.position.z);
 
       this.weaponSystem.trySetInventory(this.state.ownedPassives);
-      this.weaponSystem.update(
-        animDelta,
-        this.state.run.elapsed,
-        this.player.position.x,
-        this.player.position.z,
-        this.player.velocity.x,
-        this.player.velocity.z,
-        this.state.stats,
-      );
+      if (!this.showcaseMode) {
+        this.weaponSystem.update(
+          animDelta,
+          this.state.run.elapsed,
+          this.player.position.x,
+          this.player.position.z,
+          this.player.velocity.x,
+          this.player.velocity.z,
+          this.state.stats,
+        );
+      }
       this.projectiles.update(animDelta);
 
       const collectRadius = 0.7;
@@ -574,7 +588,9 @@ export class Game {
       phase: this.state.phase,
     });
 
-    this.cameraRig.update(delta, this.player.position);
+    // While showcasing, hold the camera on the lineup's centre rather than
+    // following the player, so every row stays framed.
+    this.cameraRig.update(delta, this.showcaseMode ? SHOWCASE_CAMERA_TARGET : this.player.position);
     this.updateHud();
     this.publishDiagnostics();
   }
@@ -844,7 +860,110 @@ export class Game {
         }
         this.selectedCharacter = character;
       },
+      enemyShowcase: (opts) => this.enterEnemyShowcase(opts ?? {}),
+      setEnemyPose: (pose) => {
+        const index = pose === null ? -1 : ENEMY_POSES.indexOf(pose as EnemyPose);
+        if (pose !== null && index === -1) {
+          console.warn(`Unknown enemy pose: ${pose}`);
+          return;
+        }
+        for (let i = 0; i < this.enemies.capacity; i++) {
+          if (this.enemies.alive[i]) this.enemies.forcedPose[i] = index;
+        }
+      },
+      // QA helper: read back what pose each live enemy is ACTUALLY playing
+      // right now. Lets a test assert that a telegraph really fires during
+      // real gameplay (spitter charging, ghoul winding up its dash, boss
+      // holding its attack wind-up) instead of only checking that the clips
+      // exist in the atlas.
+      getEnemyAnimStates: () => {
+        const out: Array<{ name: string; pose: string; isBoss: boolean }> = [];
+        for (let i = 0; i < this.enemies.capacity; i++) {
+          if (!this.enemies.alive[i]) continue;
+          const kind = this.enemies.poseKind[i];
+          let pose: string;
+          if (kind !== 255 && this.enemies.poseRemaining[i] > 0) {
+            pose = ENEMY_POSES[kind];
+          } else {
+            const vx = this.enemies.velX[i];
+            const vz = this.enemies.velZ[i];
+            pose = vx * vx + vz * vz > 0.04 ? 'walk' : 'idle';
+          }
+          out.push({ name: this.enemies.getType(this.enemies.typeId[i]).name, pose, isBoss: this.enemies.isBoss[i] === 1 });
+        }
+        return out;
+      },
+      exitEnemyShowcase: () => {
+        this.showcaseMode = false;
+        this.showcaseViewHeight = 0;
+        this.enemies.clear();
+      },
     };
+  }
+
+  /**
+   * Art-inspection scene: parks one frozen instance of EVERY registered enemy
+   * and boss type in a labelled grid with the player standing among them, so
+   * scale, silhouette, shading, shadows and animation can be compared side by
+   * side in one frame. Wave spawning and weapon fire are suspended and the
+   * camera zooms out to fit the lineup.
+   *
+   * Returns the layout (type name + world position per slot) so a capture
+   * script can annotate the screenshot without re-deriving the grid.
+   */
+  private enterEnemyShowcase(opts: { pose?: string; columns?: number; spacing?: number; viewHeight?: number; only?: string[] }): Array<{ name: string; x: number; z: number }> {
+    if (this.state.phase !== 'playing') this.beginRun();
+    this.showcaseMode = true;
+    this.godMode = true;
+    this.enemies.clear();
+
+    const fullOrder: Array<keyof EnemyTypeIds> = [
+      'grunt', 'bat', 'skeleton', 'slime', 'wolf',
+      'ghost', 'brute', 'spitter', 'ghoul', 'gargoyle',
+      'rotKing', 'boneColossus', 'duskfang',
+    ];
+    // `only` narrows the lineup to a handful of types so the camera can pull
+    // right in on them - the whole-roster view is for comparing scale, this
+    // is for judging pixel craft on individual creatures.
+    const order = opts.only?.length
+      ? fullOrder.filter((k) => opts.only!.includes(k))
+      : fullOrder;
+    const columns = opts.columns ?? 5;
+    const spacing = opts.spacing ?? 5.5;
+    const rowGap = spacing * 1.15;
+    // Player occupies slot 0 so it is directly comparable against the roster.
+    const totalSlots = order.length + 1;
+    const rows = Math.ceil(totalSlots / columns);
+    const originX = -((columns - 1) * spacing) / 2;
+    const originZ = -((rows - 1) * rowGap) / 2;
+    const slotPos = (slot: number) => ({
+      x: originX + (slot % columns) * spacing,
+      z: originZ + Math.floor(slot / columns) * rowGap,
+    });
+
+    const layout: Array<{ name: string; x: number; z: number }> = [];
+    const playerSlot = slotPos(0);
+    this.player.position.set(playerSlot.x, LAYER_Y.player, playerSlot.z);
+    this.player.velocity.set(0, 0, 0);
+    this.cameraRig.snapTo(new THREE.Vector3(0, 0, 0));
+    layout.push({ name: `player:${this.selectedCharacter.name}`, x: playerSlot.x, z: playerSlot.z });
+
+    const poseIndex = opts.pose ? ENEMY_POSES.indexOf(opts.pose as EnemyPose) : -1;
+    order.forEach((key, k) => {
+      const { x, z } = slotPos(k + 1);
+      const isBoss = key === 'rotKing' || key === 'boneColossus' || key === 'duskfang';
+      const index = this.enemies.spawn(this.enemyTypes[key], x, z, isBoss ? { boss: true } : undefined);
+      if (index === -1) return;
+      this.enemies.frozen[index] = 1;
+      this.enemies.facing[index] = 1;
+      this.enemies.spawnTimer[index] = 0; // skip the pop-in so the first frame is already correct
+      if (poseIndex >= 0) this.enemies.forcedPose[index] = poseIndex;
+      layout.push({ name: this.enemies.getType(this.enemyTypes[key]).name, x, z });
+    });
+
+    // Frame the whole grid with a margin, unless the caller pins a value.
+    this.showcaseViewHeight = opts.viewHeight ?? Math.max(20, rows * rowGap + 14);
+    return layout;
   }
 
   private publishDiagnostics(): void {
@@ -875,6 +994,10 @@ export class Game {
         geometries: info.memory.geometries,
         textures: info.memory.textures,
       },
+      // Number of distinct sprite cells packed into the shared atlas. Worth
+      // watching after an art pass: the atlas is a square sqrt-packing at
+      // 64px per cell, so this is what drives its texture memory.
+      atlasCells: spriteAtlas.debugCellCount,
       canvas: {
         clientWidth: this.canvas.clientWidth,
         clientHeight: this.canvas.clientHeight,

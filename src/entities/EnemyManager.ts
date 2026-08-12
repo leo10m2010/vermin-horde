@@ -8,10 +8,35 @@ import { advanceAnimFrame, spriteAtlas } from '../render/SpriteAtlas';
 
 export type EnemyBehavior = (index: number, dt: number, mgr: EnemyManager, playerX: number, playerZ: number) => void;
 
+/**
+ * The six animation states every creature authors art for (see
+ * SpriteLibraryEnemyArt.ts). Ordered by index so the per-instance state can
+ * live in a Uint8Array alongside the rest of the struct-of-arrays pool
+ * instead of costing an object per enemy.
+ */
+export const ENEMY_POSES = ['idle', 'walk', 'attack', 'hit', 'special', 'death'] as const;
+export type EnemyPose = (typeof ENEMY_POSES)[number];
+export const POSE_NONE = 255;
+
+/**
+ * Which pose wins when two are requested in the same window. A deliberate
+ * action (attack, then its charge/telegraph) outranks a flinch: getting shot
+ * mid-swing must not cancel the swing pose, because the telegraph is what the
+ * player reads to dodge. The white hit-flash (aFlash) still fires on every
+ * hit regardless, so damage feedback is never lost.
+ */
+const POSE_PRIORITY: Record<number, number> = { 2: 3, 4: 2, 3: 1 };
+
 export interface EnemyTypeDef {
   id: number;
   name: string;
-  walkClip: string;
+  /**
+   * Atlas clip-name prefix; the six pose clips are `${clipPrefix}_${pose}`.
+   * Resolved once at registerType() (clips are registered before enemy types
+   * - see Game's constructor order) into `resolvedClips`, so the render loop
+   * never does string concatenation or map lookups per enemy per frame.
+   */
+  clipPrefix: string;
   hp: number;
   speed: number;
   contactDamage: number;
@@ -20,9 +45,13 @@ export interface EnemyTypeDef {
   xpValue: number;
   contactCooldown: number;
   tint: [number, number, number];
+  /** Death-animation length. Bosses get a longer, readable collapse; trash stays brief so hordes don't clutter. */
+  deathDuration?: number;
   behavior?: EnemyBehavior;
   /** Called once when an instance of this type spawns (e.g. custom init). */
   onSpawn?: (index: number, mgr: EnemyManager) => void;
+  /** Filled in by registerType: pose index -> clip name, or null when unregistered. */
+  resolvedClips?: Array<string | null>;
 }
 
 // Brief animated tail after death instead of an instant pop, and a brief
@@ -32,6 +61,10 @@ export interface EnemyTypeDef {
 // only the rendering lingers).
 const DEATH_DURATION = 0.22;
 const SPAWN_FADE_DURATION = 0.18;
+/** How long the flinch pose holds after a hit. Short on purpose: enemies in a horde are hit constantly. */
+const HIT_POSE_DURATION = 0.16;
+/** Below this speed (squared) an enemy plays idle instead of walk. */
+const IDLE_SPEED_SQ = 0.04;
 
 const defaultChase: EnemyBehavior = (i, _dt, mgr, px, pz) => {
   const dx = px - mgr.posX[i];
@@ -85,6 +118,34 @@ export class EnemyManager {
    * fade/pop-in ramp in the render step below. */
   readonly spawnTimer = new Float32Array(this.capacity);
 
+  // --- one-shot pose state (attack / hit / special) ---
+  // `animTimer` above stays a free-running clock: several behaviors read it as
+  // a per-instance phase source (makeWobbleChase, makeGhostBehavior), so
+  // resetting it on a state change would visibly jolt their movement. One-shot
+  // poses therefore get their own playhead here instead.
+  /** Active one-shot pose index, or POSE_NONE. */
+  readonly poseKind = new Uint8Array(this.capacity).fill(POSE_NONE);
+  /** Seconds left of the active one-shot pose. */
+  readonly poseRemaining = new Float32Array(this.capacity);
+  /** Total length of the active one-shot pose, so the playhead is (duration - remaining). */
+  readonly poseDuration = new Float32Array(this.capacity);
+  /**
+   * Inspection-only override (see the `enemyShowcase` test hook): when >= 0
+   * this pose is rendered permanently, ignoring gameplay state, so every
+   * creature can be compared side by side in the same pose. Never set during
+   * normal play.
+   */
+  readonly forcedPose = new Int8Array(this.capacity).fill(-1);
+  /**
+   * Inspection-only (see the `enemyShowcase` test hook): skips behavior,
+   * separation, movement integration and contact damage for this slot, while
+   * still animating and rendering it. Needed because several behaviors add
+   * perpendicular wobble that is independent of `speed` (makeWobbleChase,
+   * makeGhostBehavior), so simply zeroing speed would not hold a comparison
+   * lineup in place. Never set during normal play.
+   */
+  readonly frozen = new Uint8Array(this.capacity);
+
   private readonly types: EnemyTypeDef[] = [];
 
   constructor() {
@@ -94,8 +155,128 @@ export class EnemyManager {
 
   registerType(def: Omit<EnemyTypeDef, 'id'>): number {
     const id = this.types.length;
-    this.types.push({ ...def, id });
+    // Resolve every pose clip once, here, rather than per enemy per frame.
+    // Unregistered poses resolve to null and fall back at render time, so a
+    // creature that only ships a walk cycle still renders correctly.
+    const resolvedClips = ENEMY_POSES.map((pose) => {
+      const name = `${def.clipPrefix}_${pose}`;
+      return spriteAtlas.hasClip(name) ? name : null;
+    });
+    this.types.push({ ...def, id, resolvedClips });
     return id;
+  }
+
+  /**
+   * Ask an enemy to play a one-shot pose (attack / hit / special) for
+   * `duration` seconds. Behaviors call this to make their tells visible - a
+   * spitter inflating its throat sac, a ghoul coiling before a dash, a boss
+   * hauling its weapon overhead. Refuses to downgrade an in-flight
+   * higher-priority pose (see POSE_PRIORITY), and re-requesting the SAME pose
+   * simply extends it, which is how behaviors hold a charge tell across the
+   * whole windup by calling this every frame.
+   */
+  requestPose(index: number, pose: EnemyPose, duration: number): void {
+    if (!this.alive[index]) return;
+    const kind = ENEMY_POSES.indexOf(pose);
+    const current = this.poseKind[index];
+    if (current !== POSE_NONE && this.poseRemaining[index] > 0) {
+      if (current === kind) {
+        // same tell, held: keep the longest remaining window, don't restart it
+        this.poseRemaining[index] = Math.max(this.poseRemaining[index], duration);
+        this.poseDuration[index] = Math.max(this.poseDuration[index], duration);
+        return;
+      }
+      if ((POSE_PRIORITY[kind] ?? 0) < (POSE_PRIORITY[current] ?? 0)) return;
+    }
+    this.poseKind[index] = kind;
+    this.poseRemaining[index] = duration;
+    this.poseDuration[index] = duration;
+  }
+
+  /** Resolve the clip for a pose, falling back walk -> idle so a partial art set never renders nothing. */
+  private clipFor(def: EnemyTypeDef, poseIndex: number): string | null {
+    const clips = def.resolvedClips;
+    if (!clips) return null;
+    return clips[poseIndex] ?? clips[1] ?? clips[0] ?? null;
+  }
+
+  /**
+   * Advances one live enemy's animation state and pushes its instance to the
+   * sprite + shadow batches. Shared by the normal update path and the frozen
+   * inspection path (which skips movement but must still animate).
+   */
+  private renderEnemy(i: number, def: EnemyTypeDef, dt: number, slow: number): void {
+    // `animTimer` stays free-running (behaviors read it as a phase source);
+    // one-shot poses run on their own playhead so they always start at frame
+    // 0 and clamp on the last frame instead of joining a loop mid-cycle.
+    this.animTimer[i] += dt * slow;
+    if (this.poseRemaining[i] > 0) {
+      this.poseRemaining[i] -= dt;
+      if (this.poseRemaining[i] <= 0) this.poseKind[i] = POSE_NONE;
+    }
+
+    let poseIndex: number;
+    let playhead: number;
+    const forced = this.forcedPose[i];
+    if (forced >= 0) {
+      // Inspection override: hold one pose indefinitely. The playhead is
+      // wrapped to the clip's own length below, so even the one-shot clips
+      // (attack/death) REPLAY instead of freezing on their last frame - the
+      // point of the showcase is reviewing the animation, not its end state.
+      poseIndex = forced;
+      playhead = this.animTimer[i];
+    } else if (this.poseKind[i] !== POSE_NONE) {
+      poseIndex = this.poseKind[i];
+      playhead = this.poseDuration[i] - this.poseRemaining[i];
+    } else {
+      const movingSq = this.velX[i] * this.velX[i] + this.velZ[i] * this.velZ[i];
+      poseIndex = movingSq > IDLE_SPEED_SQ ? 1 : 0;
+      playhead = this.animTimer[i];
+    }
+
+    // Fall back to atlas cell 0 for unregistered clips so a naming mismatch
+    // between enemy configs and sprite registrations never crashes the loop.
+    const clipName = this.clipFor(def, poseIndex);
+    let uv;
+    if (clipName) {
+      const clip = spriteAtlas.getClip(clipName);
+      if (forced >= 0 && !clip.loop) playhead %= clip.cells.length / clip.fps;
+      const frame = advanceAnimFrame(clip, playhead, 0);
+      uv = spriteAtlas.getUV(frame.cellIndex);
+    } else {
+      uv = spriteAtlas.getUV(0);
+    }
+    const tint = def.tint;
+    const flash = this.flashTimer[i] > 0 ? 1 : 0;
+
+    // Spawn-in fade/pop: fresh spawns ramp alpha 0.2->1 and scale 0.7->1
+    // over SPAWN_FADE_DURATION instead of snapping to full size/opacity,
+    // most noticeable for the frequent trash-mob spawns at the view edge.
+    let spawnAlpha = 1;
+    let spawnScale = 1;
+    if (this.spawnTimer[i] > 0) {
+      this.spawnTimer[i] = Math.max(0, this.spawnTimer[i] - dt);
+      const t = this.spawnTimer[i] / SPAWN_FADE_DURATION; // 1 -> 0
+      spawnAlpha = 0.2 + 0.8 * (1 - t);
+      spawnScale = 0.7 + 0.3 * (1 - t);
+    }
+
+    const size = this.spriteSize[i] * spawnScale;
+    this.batch.set(
+      i,
+      this.posX[i],
+      this.isBoss[i] ? LAYER_Y.boss : this.isElite[i] ? LAYER_Y.elite : LAYER_Y.enemy,
+      this.posZ[i],
+      uv,
+      size * this.facing[i],
+      size,
+      tint[0],
+      tint[1],
+      tint[2],
+      spawnAlpha,
+      flash,
+    );
+    this.shadowBatch.set(i, this.posX[i], this.posZ[i], size * 0.36);
   }
 
   getType(id: number): EnemyTypeDef {
@@ -135,6 +316,11 @@ export class EnemyManager {
     this.dying[index] = 0;
     this.dyingTimer[index] = 0;
     this.spawnTimer[index] = SPAWN_FADE_DURATION;
+    this.poseKind[index] = POSE_NONE;
+    this.poseRemaining[index] = 0;
+    this.poseDuration[index] = 0;
+    this.forcedPose[index] = -1;
+    this.frozen[index] = 0;
 
     def.onSpawn?.(index, this);
     return index;
@@ -145,6 +331,10 @@ export class EnemyManager {
     if (!this.alive[index]) return false;
     this.hp[index] -= amount;
     this.flashTimer[index] = 0.09;
+    // Visible flinch on top of the white flash - the flash alone reads as
+    // "something happened to that pixel", the recoil pose reads as "that
+    // creature was hurt".
+    this.requestPose(index, 'hit', HIT_POSE_DURATION);
     gameEvents.emit('enemyHit', { x: this.posX[index], z: this.posZ[index], damage: amount, crit, enemyIndex: index });
     if (this.hp[index] <= 0) {
       this.kill(index);
@@ -169,8 +359,12 @@ export class EnemyManager {
     if (!this.alive[index]) return;
     this.alive[index] = 0;
     this.dying[index] = 1;
-    this.dyingTimer[index] = DEATH_DURATION;
     const def = this.types[this.typeId[index]];
+    // Bosses hold their collapse noticeably longer than trash - a boss death
+    // is an event, a grunt death is one of thousands.
+    this.dyingTimer[index] = def.deathDuration ?? DEATH_DURATION;
+    this.poseKind[index] = POSE_NONE;
+    this.poseRemaining[index] = 0;
     gameEvents.emit('enemyKilled', {
       x: this.posX[index],
       z: this.posZ[index],
@@ -234,6 +428,15 @@ export class EnemyManager {
         if (this.slowTimer[i] <= 0) this.slowFactor[i] = 1;
       }
 
+      if (this.frozen[i]) {
+        // Inspection lineup: hold position exactly, but keep animating below.
+        this.velX[i] = 0;
+        this.velZ[i] = 0;
+        if (this.flashTimer[i] > 0) this.flashTimer[i] = Math.max(0, this.flashTimer[i] - dt);
+        this.renderEnemy(i, def, dt, 1);
+        continue;
+      }
+
       (def.behavior ?? defaultChase)(i, dt, this, playerX, playerZ);
 
       // Local separation so hordes don't visually merge into one blob. Uses
@@ -282,54 +485,18 @@ export class EnemyManager {
         if (this.contactTimer[i] <= 0) {
           contactDamage += def.contactDamage;
           this.contactTimer[i] = def.contactCooldown;
+          // Every melee creature swings when it actually connects, without
+          // each one needing its own behavior function - contact damage is
+          // already centralized here, so the strike pose is too. Ranged types
+          // (spitter/gargoyle) drive their own attack pose from their
+          // behavior instead, where the shot is fired.
+          this.requestPose(i, 'attack', Math.min(0.34, def.contactCooldown * 0.6));
         }
       }
 
       if (this.flashTimer[i] > 0) this.flashTimer[i] = Math.max(0, this.flashTimer[i] - dt);
 
-      // Render
-      this.animTimer[i] += dt * slow;
-      // Fall back to atlas cell 0 for unregistered clips so a naming mismatch
-      // between enemy configs and sprite registrations never crashes the loop.
-      let uv;
-      if (spriteAtlas.hasClip(def.walkClip)) {
-        const clip = spriteAtlas.getClip(def.walkClip);
-        const frame = advanceAnimFrame(clip, this.animTimer[i], 0);
-        uv = spriteAtlas.getUV(frame.cellIndex);
-      } else {
-        uv = spriteAtlas.getUV(0);
-      }
-      const tint = def.tint;
-      const flash = this.flashTimer[i] > 0 ? 1 : 0;
-
-      // Spawn-in fade/pop: fresh spawns ramp alpha 0.2->1 and scale 0.7->1
-      // over SPAWN_FADE_DURATION instead of snapping to full size/opacity,
-      // most noticeable for the frequent trash-mob spawns at the view edge.
-      let spawnAlpha = 1;
-      let spawnScale = 1;
-      if (this.spawnTimer[i] > 0) {
-        this.spawnTimer[i] = Math.max(0, this.spawnTimer[i] - dt);
-        const t = this.spawnTimer[i] / SPAWN_FADE_DURATION; // 1 -> 0
-        spawnAlpha = 0.2 + 0.8 * (1 - t);
-        spawnScale = 0.7 + 0.3 * (1 - t);
-      }
-
-      const size = this.spriteSize[i] * spawnScale;
-      this.batch.set(
-        i,
-        this.posX[i],
-        this.isBoss[i] ? LAYER_Y.boss : this.isElite[i] ? LAYER_Y.elite : LAYER_Y.enemy,
-        this.posZ[i],
-        uv,
-        size * this.facing[i],
-        size,
-        tint[0],
-        tint[1],
-        tint[2],
-        spawnAlpha,
-        flash,
-      );
-      this.shadowBatch.set(i, this.posX[i], this.posZ[i], size * 0.36);
+      this.renderEnemy(i, def, dt, slow);
     }
 
     // Death-fade pass: dying enemies stopped being alive/targetable the
@@ -351,18 +518,32 @@ export class EnemyManager {
         continue;
       }
 
-      const t = this.dyingTimer[i] / DEATH_DURATION; // 1 -> 0
       const def = this.types[this.typeId[i]];
+      const duration = def.deathDuration ?? DEATH_DURATION;
+      const t = this.dyingTimer[i] / duration; // 1 -> 0
+      // Play the creature's authored death clip, scrubbed across the whole
+      // tail so all four collapse stages are seen regardless of how long that
+      // creature's death lasts.
       let uv;
-      if (spriteAtlas.hasClip(def.walkClip)) {
-        const clip = spriteAtlas.getClip(def.walkClip);
-        const frame = advanceAnimFrame(clip, this.animTimer[i], 0);
+      const clipName = this.clipFor(def, 5);
+      if (clipName) {
+        const clip = spriteAtlas.getClip(clipName);
+        // Map the tail's 1->0 progress onto the clip's own 0->length playhead
+        // so every collapse stage is shown no matter how the two durations
+        // compare (trash: 0.22s over 4 frames; bosses: ~0.9s over 4 frames).
+        const clipLength = clip.cells.length / clip.fps;
+        const frame = advanceAnimFrame(clip, (1 - t) * clipLength, 0);
         uv = spriteAtlas.getUV(frame.cellIndex);
       } else {
         uv = spriteAtlas.getUV(0);
       }
       const tint = def.tint;
-      const shrink = 0.6 + 0.4 * t; // ease down toward 60% size, not zero, so the fade reads clearly before it vanishes
+      // Barely shrink now that there is a real collapse animation to read -
+      // the old 0.6x shrink was doing the work a death pose does properly,
+      // and would visibly fight it. Alpha holds full until the last third so
+      // the animation plays out before the sprite fades off.
+      const shrink = 0.92 + 0.08 * t;
+      const alpha = Math.min(1, t / 0.35);
       const size = this.spriteSize[i] * shrink;
       this.batch.set(
         i,
@@ -375,10 +556,10 @@ export class EnemyManager {
         tint[0],
         tint[1],
         tint[2],
-        t,
+        alpha,
         0,
       );
-      this.shadowBatch.set(i, this.posX[i], this.posZ[i], size * 0.36 * t);
+      this.shadowBatch.set(i, this.posX[i], this.posZ[i], size * 0.36 * alpha);
     }
 
     this.batch.commit();
@@ -396,6 +577,11 @@ export class EnemyManager {
       this.dying[i] = 0;
       this.dyingTimer[i] = 0;
       this.spawnTimer[i] = 0;
+      this.poseKind[i] = POSE_NONE;
+      this.poseRemaining[i] = 0;
+      this.poseDuration[i] = 0;
+      this.forcedPose[i] = -1;
+      this.frozen[i] = 0;
     }
     this.pool.reset();
     this.batch.commit();

@@ -34,10 +34,18 @@ export function resizeRenderer(
   const bufferWidth = Math.floor(width * dpr);
   const bufferHeight = Math.floor(height * dpr);
   const needsResize = canvas.width !== bufferWidth || canvas.height !== bufferHeight;
+  // The frustum also has to be rebuilt when the CALLER changes viewHeight
+  // without the canvas changing size (the art-inspection showcase zooms out
+  // to fit a whole lineup). `top - bottom` is the view height currently baked
+  // into the camera, so comparing against it detects that case.
+  const needsFrustum = needsResize || Math.abs(camera.top - camera.bottom - viewHeight) > 1e-4;
 
   if (needsResize) {
     renderer.setPixelRatio(dpr);
     renderer.setSize(width, height, false);
+  }
+
+  if (needsFrustum) {
     const aspect = width / height;
     const halfH = viewHeight / 2;
     const halfW = halfH * aspect;
