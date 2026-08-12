@@ -8,8 +8,15 @@ const EVOLVED_TWIN_ANGLE = (18 * Math.PI) / 180; // evolved-only: second axe thr
 const EXTRA_PROJECTILE_ANGLE = (14 * Math.PI) / 180; // Amount (Ammo Satchel): extra axes fan out from the primary throw
 const ARC_DURATION = 0.55; // seconds over which the visual toss-height rises then falls
 const ARC_HEIGHT = 0.55; // world units of peak visual rise - collisions stay flat on X/Z
+// Each throw advances a persistent sweep angle by the golden angle (~137.5deg)
+// instead of aiming where the player is walking. Like sunflower-seed
+// packing, a golden-angle step never repeats the same direction for many
+// throws in a row and still blankets all 360deg evenly over time - a
+// "windmill" identity that reads as deliberate, not random, and is
+// completely decoupled from player input.
+const GOLDEN_ANGLE = 2.39996323;
 
-/** Thrown in the player's current facing/movement direction (random if idle); pierces multiple enemies. */
+/** Rotating "windmill" throw pattern - own identity, independent of player movement/facing; pierces multiple enemies. */
 export class AxeWeapon implements Weapon {
   readonly id = 'axe_throw';
   readonly name = 'Axe';
@@ -21,12 +28,14 @@ export class AxeWeapon implements Weapon {
 
   private readonly visualId: number;
   private cooldown = 0;
-  private lastFacingAngle = 0;
+  private sweepAngle: number;
   /** projectile index -> elapsed time at launch, so the visual toss arc can be computed purely from age. */
   private readonly arcs = new Map<number, number>();
 
   constructor(visuals: VisualCache, private readonly weaponNumericId: number) {
     this.visualId = visuals.get('proj_axe', 0.6, [1, 1, 1], true);
+    // Random starting phase so two runs (or two Axe-wielding characters) don't sweep in lockstep.
+    this.sweepAngle = Math.random() * Math.PI * 2;
   }
 
   private pierce(): number {
@@ -45,17 +54,8 @@ export class AxeWeapon implements Weapon {
     // ~1.7-2x other weapons get from their evolutions.
     this.cooldown = Math.max(0.4, BASE_COOLDOWN - 0.05 * (this.level - 1)) * ctx.stats.cooldownMultiplier;
 
-    const moveSpeedSq = ctx.playerVX * ctx.playerVX + ctx.playerVZ * ctx.playerVZ;
-    let angle: number;
-    if (moveSpeedSq > 0.01) {
-      angle = Math.atan2(ctx.playerVZ, ctx.playerVX);
-      this.lastFacingAngle = angle;
-    } else if (ctx.rng() < 0.5) {
-      angle = this.lastFacingAngle;
-    } else {
-      angle = ctx.rng() * Math.PI * 2;
-      this.lastFacingAngle = angle;
-    }
+    const angle = this.sweepAngle;
+    this.sweepAngle += GOLDEN_ANGLE;
 
     // Balance: was 1.3 - trimmed since the twin-throw already doubles damage output.
     const damage = (BASE_DAMAGE + 2.2 * (this.level - 1)) * (this.evolved ? 1.15 : 1) * ctx.stats.damageMultiplier;

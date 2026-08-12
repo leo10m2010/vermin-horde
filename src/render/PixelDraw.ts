@@ -101,3 +101,32 @@ export function fillRect(g: string[][], x0: number, y0: number, x1: number, y1: 
 export function toRows(g: string[][]): string[] {
   return g.map((row) => row.join(''));
 }
+
+/**
+ * Fills a rect with `base`, then stamps a 1px `highlight` strip along its
+ * top+left edge and a 1px `shadow` strip along its bottom+right edge (light
+ * source implicitly top-left, matching every other shaded block so a whole
+ * character reads as lit consistently). This is the cheap, repeatable way to
+ * turn a flat single-tone block into something that reads as having volume -
+ * use it for every major body part (torso, limbs, armor plates, weapon
+ * heads) instead of a flat fillRect, and reserve plain fillRect for genuinely
+ * flat/thin details (outlines, eye dots, straps) where a bevel would just be
+ * noise. Safe to call with a rect only 1-2px wide/tall - the edge stamps
+ * simply overlap the base fill in that case, which still reads fine.
+ */
+export function fillRectShaded(
+  g: string[][],
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  base: string,
+  highlight: string,
+  shadow: string,
+): void {
+  fillRect(g, x0, y0, x1, y1, base);
+  fillRect(g, x0, y0, x1, y0, highlight);
+  fillRect(g, x0, y0, x0, y1, highlight);
+  fillRect(g, x0, y1, x1, y1, shadow);
+  fillRect(g, x1, y0, x1, y1, shadow);
+}

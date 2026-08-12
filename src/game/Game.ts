@@ -811,6 +811,18 @@ export class Game {
         this.state.ownedPassives.set(id, (this.state.ownedPassives.get(id) ?? 0) + 1);
         this.weaponSystem.checkPendingEvolutions();
       },
+      // QA helper: pick a roster character by id (see Characters.ts) without
+      // driving the CharacterSelect UI - the next beginRun()/'active-play'
+      // uses it. Silently no-ops on an unknown id so a typo in a test script
+      // fails loud via the console.warn instead of a confusing wrong sprite.
+      selectCharacter: (id: string) => {
+        const character = CHARACTERS.find((c) => c.id === id);
+        if (!character) {
+          console.warn(`Unknown character id: ${id}`);
+          return;
+        }
+        this.selectedCharacter = character;
+      },
     };
   }
 

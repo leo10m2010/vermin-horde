@@ -64,6 +64,8 @@ interface ThreeGameTestHooks {
   grantPassive(id: string): void;
   /** QA helper: skip straight to the next arcana milestone offer instead of waiting out the real 5-minute-survived gate. */
   forceArcana(): void;
+  /** QA helper: pick a roster character by id (see Characters.ts) ahead of the next beginRun()/'active-play', without driving the CharacterSelect UI. */
+  selectCharacter(id: string): void;
 }
 
 interface Window {
