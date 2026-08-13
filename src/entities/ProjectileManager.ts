@@ -51,6 +51,11 @@ export class ProjectileManager {
    * Needed by weapons whose persistent zone/ring visual must track a stat-scaled radius (area passives/arcanas)
    * instead of the fixed size baked into the visual at registerVisual() time - see setSize(). */
   readonly sizeOverride = new Float32Array(this.capacity).fill(-1);
+  /** Per-instance HEIGHT override, paired with `sizeOverride` (which acts as the width when this is set).
+   * -1 means "square": use sizeOverride/spriteSize for both axes, which is what every round projectile wants.
+   * Long thin visuals (the whip lash) need independent width/height or they render as a huge square quad
+   * whose feet-anchored top edge ends up above the player's head. See setSizeXY(). */
+  readonly heightSizeOverride = new Float32Array(this.capacity).fill(-1);
   /** Per-instance visual-only Y offset added on top of LAYER_Y.projectile - lets a weapon fake a 2.5D parabolic
    * arc (Axe's throw, Hex Flask's lob) purely for rendering while collisions stay flat on X/Z. Reset to 0 on spawn. */
   readonly heightOffset = new Float32Array(this.capacity);
@@ -97,6 +102,7 @@ export class ProjectileManager {
     this.animTimer[index] = 0;
     this.spin[index] = 0;
     this.sizeOverride[index] = -1;
+    this.heightSizeOverride[index] = -1;
     this.heightOffset[index] = 0;
     this.facingOverride[index] = 0;
     this.spinOffset[index] = 0;
@@ -135,6 +141,18 @@ export class ProjectileManager {
    * instance is alive, since a fresh spawn() resets the override back to "use the visual default". */
   setSize(index: number, size: number): void {
     this.sizeOverride[index] = size;
+    this.heightSizeOverride[index] = -1; // square, unchanged behaviour
+  }
+
+  /**
+   * Independent width/height for this instance, for visuals that are not
+   * square. Without this a 3-unit-long whip lash also became 3 units TALL,
+   * and since the quad is feet-anchored that put the drawn lash well above
+   * the player's head. `setSize()` keeps its original square meaning.
+   */
+  setSizeXY(index: number, width: number, height: number): void {
+    this.sizeOverride[index] = width;
+    this.heightSizeOverride[index] = height;
   }
 
   /** Visual-only world-unit Y offset for this frame (2.5D arc/lob effect). Does not affect collision, which stays X/Z-only. */
@@ -201,6 +219,7 @@ export class ProjectileManager {
               ? 1
               : -1;
       const size = this.sizeOverride[i] >= 0 ? this.sizeOverride[i] : visual.spriteSize;
+      const sizeY = this.heightSizeOverride[i] >= 0 ? this.heightSizeOverride[i] : size;
 
       this.batch.set(
         i,
@@ -209,7 +228,7 @@ export class ProjectileManager {
         this.posZ[i],
         uv,
         size * facing,
-        size,
+        sizeY,
         visual.tint[0],
         visual.tint[1],
         visual.tint[2],

@@ -46,60 +46,103 @@ function paintOrb(g: string[][], cx: number, cy: number, r: number, core: string
 // Authored pointing RIGHT; WhipStrike mirrors it per side via setFacing().
 // ===========================================================================
 const WHIP_PALETTE: Record<string, string> = {
-  a: '#fff4d0', // hot inner edge of the lash
-  b: '#ffd166', // body
-  c: '#e08a2e', // shade
-  d: '#9c4a12', // deep shade
+  a: '#fff4d0', // hot inner edge / highlight along the top of the cord
+  b: '#ffd166', // cord body
+  c: '#e08a2e', // cord shade (underside)
+  d: '#9c4a12', // deep shade / grip
   t: '#fffdf2', // crack-tip flash
 };
 
+/** Grid is deliberately long and thin - the sprite is rendered into a
+ * non-square quad via setSizeXY(), so the authored aspect must match. */
+const WHIP_W = 44;
+const WHIP_H = 18;
+const WHIP_MID = 9;
+
+/**
+ * Draws one tapering, curved cord from the grip end (x=0) out to `len`.
+ *
+ * Two things make this read as a whip rather than a bar:
+ *  - THICKNESS TAPERS from a few pixels at the grip to a single pixel at the
+ *    tip, so the eye follows it outward,
+ *  - the centreline follows a SINE CURVE whose amplitude grows toward the tip,
+ *    so the cord bends like something flexible being cracked instead of
+ *    sitting flat like a blade.
+ * `phase` shifts where the curve's belly sits, which is what animates the
+ * wave travelling down the cord between frames.
+ */
+function drawLash(g: string[][], len: number, amp: number, phase: number, baseThick: number): void {
+  for (let x = 0; x <= len; x++) {
+    const t = x / Math.max(1, len);
+    // Curve: amplitude ramps up along the cord, so the base stays near the
+    // hand and the tip whips furthest - the classic whip silhouette.
+    const bend = Math.sin(t * Math.PI * 1.55 + phase) * amp * (0.35 + t * 0.85);
+    const y = WHIP_MID + Math.round(bend);
+    const thick = Math.max(1, Math.round(baseThick * (1 - t * 0.88)));
+    const top = y - Math.floor(thick / 2);
+    fillRect(g, x, top, x, top + thick - 1, 'b');
+    fillRect(g, x, top, x, top, 'a'); // lit top edge
+    if (thick > 1) fillRect(g, x, top + thick - 1, x, top + thick - 1, 'c'); // shaded underside
+  }
+}
+
+/** Chunky grip/handle at the player end so the cord visibly comes FROM a hand. */
+function drawGrip(g: string[][]): void {
+  fillRectShaded(g, 0, WHIP_MID - 2, 3, WHIP_MID + 2, 'd', 'c', 'd');
+  fillRect(g, 1, WHIP_MID - 1, 2, WHIP_MID - 1, 'c');
+}
+
+/**
+ * 5-beat crack: coil -> release -> extension -> SNAP -> recovery.
+ * The tip travels much further than the base across the sequence, which is
+ * the whole point - a rigid bar would translate uniformly.
+ */
 function whipGrid(stage: number): string[][] {
-  const g = makeGrid(28, 20);
-  const midY = 10;
+  const g = makeGrid(WHIP_W, WHIP_H);
+  drawGrip(g);
   if (stage === 0) {
-    // coiled: a short hook close to the player, storing the snap
-    fillRectShaded(g, 2, midY - 2, 7, midY, 'b', 'a', 'c');
-    fillRect(g, 6, midY - 4, 8, midY - 2, 'c');
-    fillRect(g, 7, midY - 3, 8, midY - 3, 'd');
+    // COIL: short, tightly curled back near the hand, storing the snap.
+    drawLash(g, 12, 4.6, 2.2, 6);
+    fillRect(g, 10, WHIP_MID - 6, 12, WHIP_MID - 5, 'c');
   } else if (stage === 1) {
-    // extending: the lash straightens and reaches out, tapering as it goes
-    fillRectShaded(g, 1, midY - 1, 12, midY + 1, 'b', 'a', 'c');
-    fillRectShaded(g, 12, midY - 2, 18, midY, 'b', 'a', 'c');
-    fillRect(g, 18, midY - 2, 20, midY - 1, 'c');
+    // RELEASE: uncoiling, a deep belly in the cord as it starts to travel.
+    drawLash(g, 23, 4.2, 1.15, 6);
   } else if (stage === 2) {
-    // full crack: maximum extension, thin tapering tail, white-hot tip
-    fillRectShaded(g, 0, midY, 8, midY + 1, 'c', 'b', 'd');
-    fillRectShaded(g, 7, midY - 1, 17, midY + 1, 'b', 'a', 'c');
-    fillRectShaded(g, 16, midY - 2, 24, midY, 'a', 't', 'b');
-    fillRect(g, 24, midY - 3, 27, midY - 1, 't');
-    // small snap sparks off the tip
-    fillRect(g, 25, midY - 5, 26, midY - 4, 't');
-    fillRect(g, 23, midY + 2, 24, midY + 3, 'b');
+    // EXTENSION: most of the length out, the wave running toward the tip.
+    drawLash(g, 35, 3.6, 0.45, 5);
+  } else if (stage === 3) {
+    // SNAP: fully extended, nearly straight, thin white-hot tip + crack spark.
+    drawLash(g, 43, 2.6, 0.15, 5);
+    fillRect(g, 41, WHIP_MID + 1, 43, WHIP_MID + 2, 't');
+    fillRect(g, 42, WHIP_MID - 1, 43, WHIP_MID, 't');
+    fillRect(g, 39, WHIP_MID + 4, 41, WHIP_MID + 5, 'a');
   } else {
-    // follow-through: the lash has passed, only a thinning after-image remains
-    fillRect(g, 4, midY, 14, midY, 'c');
-    fillRect(g, 14, midY - 1, 22, midY - 1, 'b');
-    fillRect(g, 22, midY - 2, 25, midY - 2, 'c');
+    // RECOVERY: tension gone, a thin slack after-image falling away.
+    for (let x = 2; x <= 30; x++) {
+      const t = x / 30;
+      const y = WHIP_MID + Math.round(Math.sin(t * Math.PI * 0.9 + 2.6) * 4.0 * t);
+      fillRect(g, x, y, x, y, x % 3 === 0 ? 'b' : 'c');
+    }
   }
   return g;
 }
 
 function registerWhip(): void {
-  spriteAtlas.registerClip('whip_slash', 22, false, [
-    { key: 'whip_slash_0', draw: (ctx, s) => drawPixelGrid(ctx, s, toRows(whipGrid(0)), WHIP_PALETTE, '#3a1c05') },
-    { key: 'whip_slash_1', draw: (ctx, s) => drawPixelGrid(ctx, s, toRows(whipGrid(1)), WHIP_PALETTE, '#3a1c05') },
-    { key: 'whip_slash_2', draw: (ctx, s) => drawPixelGrid(ctx, s, toRows(whipGrid(2)), WHIP_PALETTE, '#3a1c05') },
-    { key: 'whip_slash_3', draw: (ctx, s) => drawPixelGrid(ctx, s, toRows(whipGrid(3)), WHIP_PALETTE, '#3a1c05') },
-  ]);
-  // Evolved: venomous green coil, same 4-beat timing so the snap still reads.
+  spriteAtlas.registerClip('whip_slash', 26, false, [0, 1, 2, 3, 4].map((i) => ({
+    key: `whip_slash_${i}`,
+    draw: (ctx: CanvasRenderingContext2D, s: number) => drawPixelGrid(ctx, s, toRows(whipGrid(i)), WHIP_PALETTE, '#3a1c05'),
+  })));
+  // Evolved Serpent's Coil: venom-green cord, same 5-beat crack so it still
+  // reads as a whip rather than becoming a different weapon.
   const evoPalette = { a: '#e8ffd0', b: '#9ef06a', c: '#4f9c2e', d: '#1f5210', t: '#ffffff' };
-  spriteAtlas.registerClip('whip_slash_evo', 22, false, [
-    { key: 'whip_slash_evo_0', draw: (ctx, s) => drawPixelGrid(ctx, s, toRows(whipGrid(0)), evoPalette, '#0d2606') },
-    { key: 'whip_slash_evo_1', draw: (ctx, s) => drawPixelGrid(ctx, s, toRows(whipGrid(1)), evoPalette, '#0d2606') },
-    { key: 'whip_slash_evo_2', draw: (ctx, s) => drawPixelGrid(ctx, s, toRows(whipGrid(2)), evoPalette, '#0d2606') },
-    { key: 'whip_slash_evo_3', draw: (ctx, s) => drawPixelGrid(ctx, s, toRows(whipGrid(3)), evoPalette, '#0d2606') },
-  ]);
+  spriteAtlas.registerClip('whip_slash_evo', 26, false, [0, 1, 2, 3, 4].map((i) => ({
+    key: `whip_slash_evo_${i}`,
+    draw: (ctx: CanvasRenderingContext2D, s: number) => drawPixelGrid(ctx, s, toRows(whipGrid(i)), evoPalette, '#0d2606'),
+  })));
 }
+
+/** Authored aspect ratio (width / height) of the lash sprite, so the weapon can size its quad to match. */
+export const WHIP_SPRITE_ASPECT = WHIP_W / WHIP_H;
 
 // ===========================================================================
 // AXE - a real hand axe: shaded steel head with a bevelled edge, bound haft,

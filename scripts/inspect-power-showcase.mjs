@@ -37,6 +37,7 @@ function parseArgs(argv) {
     if (v === '--url') args.url = argv[++i];
     else if (v === '--out') args.out = argv[++i];
     else if (v === '--only') args.only = argv[++i].split(',');
+    else if (v === '--hold') args.hold = Number(argv[++i]);
     else if (v === '--settle') args.settle = Number(argv[++i]);
     else if (v === '--levels') args.levels = argv[++i].split(',').map((x) => (x === 'evolved' ? 'evolved' : Number(x)));
     else if (v === '-h' || v === '--help') {
@@ -96,6 +97,7 @@ async function main() {
         if (live > 0) break;
         await page.waitForTimeout(40);
       }
+      if (args.hold > 0) await page.waitForTimeout(args.hold);
       await page.evaluate(() => window.__THREE_GAME_TEST_HOOKS__.setPausedForScreenshot(true));
       const file = path.join(outDir, `${id}-lv${level}.png`);
       await page.screenshot({ path: file });

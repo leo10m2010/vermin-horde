@@ -1,7 +1,9 @@
 import { gameEvents } from '../core/EventBus';
+import { LAYER_Y } from '../core/Constants';
 import type { Weapon, WeaponContext } from './WeaponBase';
 import { VisualCache } from './WeaponBase';
 import { effectAt } from './WeaponProgression';
+import { WHIP_SPRITE_ASPECT } from '../render/SpriteLibraryPowerArt';
 
 /**
  * WHIP STRIKE - FIXED HORIZONTAL SIDE -> BOTH SIDES.
@@ -38,6 +40,12 @@ const SLASH_VISUAL_LIFE = 0.22;
  */
 const BACK_LASH_DELAY = 0.06;
 const EVOLVED_KNOCKBACK_DISTANCE = 0.9;
+/**
+ * World-space height of the wielder's hand, i.e. where the cord should leave
+ * the body. The player sprite spans roughly y 0.02 .. 1.52, so this sits at
+ * arm level rather than at the feet or over the head.
+ */
+const HAND_HEIGHT = 0.72;
 
 interface PendingLash {
   at: number; // ctx.elapsed timestamp when this lash resolves
@@ -63,7 +71,7 @@ export class WhipStrikeWeapon implements Weapon {
   private readonly hitBuffer: number[] = [];
   private readonly pending: PendingLash[] = [];
   /** Live slash sprites, kept anchored to the player for their short life (see anchorSlashes). */
-  private readonly liveSlashes: Array<{ index: number; side: 1 | -1; reach: number }> = [];
+  private readonly liveSlashes: Array<{ index: number; side: 1 | -1; reach: number; height: number }> = [];
 
   constructor(visuals: VisualCache, private readonly weaponNumericId: number) {
     this.visualId = visuals.get('whip_slash', 1.9, [1, 1, 1], false);
@@ -115,6 +123,7 @@ export class WhipStrikeWeapon implements Weapon {
         continue;
       }
       ctx.projectiles.setPosition(s.index, ctx.playerX + s.side * s.reach * 0.5, ctx.playerZ);
+      ctx.projectiles.setHeightOffset(s.index, HAND_HEIGHT - s.height * 0.5 - LAYER_Y.projectile);
     }
   }
 
@@ -165,12 +174,21 @@ export class WhipStrikeWeapon implements Weapon {
       weaponId: this.weaponNumericId,
     });
     if (index !== -1) {
-      // Scale the sprite to the band's real length so the drawn lash grows
-      // with `reach` upgrades instead of staying a fixed-size decal over a
-      // band that has quietly got longer.
-      ctx.projectiles.setSize(index, reach * 1.05);
+      // LONG AND THIN, not square. setSize() drives both axes, so the old call
+      // made a 3.4-unit-long lash also 3.4 units TALL; with the quad anchored
+      // at its bottom edge that pushed the drawn cord about 0.6 units above
+      // the player's head. Width tracks the band's real length so the lash
+      // grows with `reach`; height follows the sprite's authored aspect so the
+      // cord stays proportionally thin at every level.
+      const width = reach * 1.05;
+      const height = width / WHIP_SPRITE_ASPECT;
+      ctx.projectiles.setSizeXY(index, width, height);
       ctx.projectiles.setFacing(index, side);
-      this.liveSlashes.push({ index, side, reach });
+      // The lash art is centred vertically in its cell, so the cord renders at
+      // (quad bottom + height/2). Offsetting by that much below HAND_HEIGHT
+      // puts the cord level with the wielder's hand instead of over their head.
+      ctx.projectiles.setHeightOffset(index, HAND_HEIGHT - height * 0.5 - LAYER_Y.projectile);
+      this.liveSlashes.push({ index, side, reach, height });
     }
   }
 
