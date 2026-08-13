@@ -19,6 +19,9 @@ interface ThreeGameDiagnostics {
   enemyCount: number;
   projectileCount: number;
   gemCount: number;
+  pickupCount: number;
+  luck: number;
+  godMode: boolean;
   particleCount: number;
   renderer: {
     calls: number;
@@ -74,6 +77,29 @@ interface ThreeGameTestHooks {
   forceArcana(): void;
   /** QA helper: pick a roster character by id (see Characters.ts) ahead of the next beginRun()/'active-play', without driving the CharacterSelect UI. */
   selectCharacter(id: string): void;
+  /** QA helper: histogram of upgrade-option ids over N rolls under a character's affinities (null = unbiased). */
+  simulateUpgradeRolls(characterId: string | null, rolls: number, count?: number): Record<string, number>;
+  /** QA helper: a character's starting weapon id. */
+  getCharacterStartWeapon(characterId: string): string;
+  /** QA helper: a character's affinity table. */
+  getCharacterAffinities(characterId: string): { weapons: Record<string, number>; passives: Record<string, number>; tags: string[] } | null;
+  /** QA helper: apply damage through the real path. Respects god mode and i-frames unless `force`. */
+  damagePlayer(amount: number, force?: boolean): void;
+  /** QA helper: kill every live enemy through the normal death path. Returns the number killed. */
+  killAllEnemies(): number;
+  /** QA helper: every live world prop (solid + breakable) with its collision box. */
+  listWorldProps(): Array<{ index: number; x: number; z: number; category: number; hp: number; halfW: number; halfD: number }>;
+  /** QA helper: destroy the breakable nearest the player through the normal damage path. */
+  breakNearestProp(): { broke: boolean; x?: number; z?: number; pickups: Array<{ x: number; z: number; kind: string }> };
+  /** QA helper: live pickups in the world. */
+  listPickups(): Array<{ x: number; z: number; kind: string }>;
+  /** QA helper: drop a specific pickup next to the player, to test its effect deterministically. */
+  spawnPickup(kind: string, dx?: number, dz?: number): number;
+  /** QA helper: enemies currently frozen by the Sepulchral Frost pickup. */
+  getFrozenCount(): number;
+  /** QA helper: loose XP gems currently magnetised toward the player. */
+  getMagnetizedGemCount(): number;
+
   /**
    * Art-inspection scene: parks one frozen instance of every enemy AND boss
    * type in a grid with the player among them, suspends wave spawning and

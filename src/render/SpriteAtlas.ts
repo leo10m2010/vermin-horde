@@ -115,6 +115,24 @@ export class SpriteAtlas {
     return texture;
   }
 
+  /**
+   * Source rect of one cell in the built atlas canvas, in PIXELS. `getUV` is
+   * for the GPU; this is for 2D canvas code that wants to blit a sprite into
+   * a DOM canvas (the stage-select dioramas), which cannot use UVs.
+   */
+  getCellRect(cellIndex: number): { x: number; y: number; size: number } {
+    return {
+      x: (cellIndex % this.cols) * this.cellPx,
+      y: Math.floor(cellIndex / this.cols) * this.cellPx,
+      size: this.cellPx,
+    };
+  }
+
+  /** The built atlas canvas, for 2D blitting. Only valid after build(). */
+  get canvas(): HTMLCanvasElement {
+    return this.texture.image as HTMLCanvasElement;
+  }
+
   get debugCellCount(): number {
     return this.draws.length;
   }

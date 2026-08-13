@@ -12,7 +12,9 @@
     "inspect:canvas": "node scripts/inspect-threejs-canvas.mjs",
     "inspect:enemies": "node scripts/inspect-enemy-showcase.mjs",
     "inspect:powers": "node scripts/inspect-power-showcase.mjs",
-    "inspect:garlic": "node scripts/inspect-garlic-aura.mjs"
+    "inspect:garlic": "node scripts/inspect-garlic-aura.mjs",
+    "inspect:screens": "node scripts/inspect-screens.mjs",
+    "inspect:pickups": "node scripts/inspect-pickups.mjs"
   },
   "dependencies": {
     "lil-gui": "^0.21.0",

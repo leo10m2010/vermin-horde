@@ -38,6 +38,10 @@ export class EventBus<Events extends Record<string, unknown>> {
 export type GameEvents = {
   playerHit: { damage: number; x: number; z: number };
   playerDeath: { x: number; z: number };
+  /** A world pickup was collected - the director applies the effect. */
+  pickupCollected: { x: number; z: number; kind: string };
+  /** A breakable world prop was destroyed - drives fragments and the drop roll. */
+  propDestroyed: { x: number; z: number; color: string };
   /** A weapon's projectile resolved against the world (e.g. a thrown axe landing), for impact VFX. */
   weaponImpact: { x: number; z: number; weaponId: string };
   enemyHit: { x: number; z: number; damage: number; crit: boolean; enemyIndex: number; weaponId?: string };

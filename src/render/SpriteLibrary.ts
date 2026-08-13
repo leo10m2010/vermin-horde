@@ -3,6 +3,7 @@ import { drawPixelGrid, drawSoftCircle, makeGrid, fillRect, toRows } from './Pix
 import { registerEnemyRosterSprites } from './SpriteLibraryEnemyArt';
 import { registerBossRosterSprites } from './SpriteLibraryBossArt';
 import { registerPowerSprites } from './SpriteLibraryPowerArt';
+import { registerPropSprites } from './SpriteLibraryPropArt';
 
 const GW = 16;
 const GH = 18;
@@ -554,6 +555,7 @@ export function registerCoreSprites(): void {
   registerEnemyRosterSprites();
   registerBossRosterSprites();
   registerPowerSprites();
+  registerPropSprites();
   registerWeaponSprites();
   registerVfxSprites();
   registerDecorSprites();

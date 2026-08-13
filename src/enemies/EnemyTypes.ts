@@ -409,6 +409,8 @@ export function registerEnemyTypes(enemies: EnemyManager): EnemyTypeIds {
     xpValue: 2,
     contactCooldown: 0.6,
     tint: [1, 1, 1],
+    // Incorporeal: the only roster member that drifts through world geometry.
+    ignoresWorldCollision: true,
     behavior: makeGhostBehavior(ghostPhase),
     onSpawn: (index) => {
       ghostPhase[index] = goldenPhase(index);

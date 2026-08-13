@@ -4,6 +4,7 @@ import { Loop } from '../core/Loop';
 import { createOrthoCamera, createRenderer, resizeRenderer } from '../core/Renderer';
 import { CAMERA, DIFFICULTY, LAYER_Y, PLAYER } from '../core/Constants';
 import { gameEvents } from '../core/EventBus';
+import { SecretCodeManager } from '../core/SecretCodeManager';
 import { createSeededRandom } from '../utils/random';
 import { spriteAtlas } from '../render/SpriteAtlas';
 import { registerCoreSprites } from '../render/SpriteLibrary';
@@ -11,6 +12,18 @@ import { registerCharacterSprites } from '../render/SpriteLibraryCharacters';
 import { registerWeapon2Sprites } from '../render/SpriteLibraryWeapons2';
 import { createGroundMesh } from '../render/WorldGround';
 import { StageDecor } from '../render/StageDecor';
+import { WorldProps } from '../world/WorldProps';
+import { PickupManager } from '../world/PickupManager';
+import {
+  rollDrop,
+  findDrop,
+  GOLD_PICKUP_VALUE,
+  RATION_HEAL,
+  FREEZE_SECONDS,
+  PURGE_DAMAGE,
+  FORTUNE_LUCK,
+  type PickupKind,
+} from '../world/DropTable';
 import { Player } from '../entities/Player';
 import { EnemyManager, ENEMY_POSES, type EnemyPose } from '../entities/EnemyManager';
 import { ProjectileManager } from '../entities/ProjectileManager';
@@ -26,7 +39,7 @@ import { UpgradeSystem, type UpgradeOption } from '../systems/UpgradeSystem';
 import { ArcanaSystem, type ArcanaDef } from '../systems/ArcanaSystem';
 import { TreasureSystem } from '../systems/TreasureSystem';
 import { ParticleSystem, DamageNumbers, BossTelegraphRings, ProjectileTrails, GemCollectEffect, LevelUpEffects, EliteAura, GroundAreaRings } from '../vfx';
-import { UiRoot, type UpgradeOptionLike, type PauseBuildInfo } from '../ui/UiRoot';
+import { UiRoot, type UpgradeOptionLike, type PauseBuildInfo, type PauseStatEntry } from '../ui/UiRoot';
 import { getWeaponMetadata, WEAPON_EVOLUTION_PASSIVE_ID } from '../weapons/WeaponMetadata';
 import { describeLevelUp, effectAt } from '../weapons/WeaponProgression';
 import { PASSIVE_DEFS } from '../systems/UpgradeSystem';
@@ -66,6 +79,11 @@ export class Game {
   private readonly arcanaSystem: ArcanaSystem;
   private readonly treasures: TreasureSystem;
   private readonly stageDecor = new StageDecor();
+  /** Gameplay prop layer: solid blockers + breakables. Separate from StageDecor's cheap scatter. */
+  private readonly worldProps = new WorldProps();
+  private readonly pickups = new PickupManager();
+  /** Scratch for collision resolution, reused so the hot path never allocates. */
+  private readonly collideScratch = { x: 0, z: 0 };
   private readonly metaProgression = new MetaProgression();
   private readonly particles = new ParticleSystem();
   private readonly damageNumbers = new DamageNumbers();
@@ -108,6 +126,9 @@ export class Game {
   private pausedForScreenshot = false;
   private reducedMotion = false;
   private godMode = false;
+  private secretCode!: SecretCodeManager;
+  private veilToastEl: HTMLElement | null = null;
+  private veilToastTimer: number | undefined;
   /** Art-inspection mode: wave spawning and weapon fire suspended (see the `enemyShowcase` test hook). */
   private showcaseMode = false;
   /** Camera framing override while showcasing, so a whole lineup fits on screen. */
@@ -138,6 +159,8 @@ export class Game {
     this.particles.batch.setTexture(spriteAtlas.texture);
     this.projectileTrails.batch.setTexture(spriteAtlas.texture);
     this.stageDecor.batch.setTexture(spriteAtlas.texture);
+    this.worldProps.batch.setTexture(spriteAtlas.texture);
+    this.pickups.batch.setTexture(spriteAtlas.texture);
 
     this.enemyTypes = registerEnemyTypes(this.enemies);
     this.waveDirector = new WaveDirector(this.enemies, this.enemyTypes, () => this.rng());
@@ -224,6 +247,7 @@ export class Game {
   dispose(): void {
     this.loop.stop();
     this.input.dispose();
+    this.secretCode.dispose();
     this.menuScene.dispose();
     this.player.dispose();
     this.enemies.dispose();
@@ -239,6 +263,8 @@ export class Game {
     this.levelUpEffects.dispose();
     this.eliteAura.dispose();
     this.groundRings.dispose();
+    this.worldProps.dispose();
+    this.pickups.dispose();
     this.audio.dispose();
     this.renderer.dispose();
     gameEvents.clear();
@@ -267,6 +293,25 @@ export class Game {
     this.scene.add(this.levelUpEffects.object3D);
     this.scene.add(this.eliteAura.object3D);
     this.scene.add(this.groundRings.object3D);
+    this.scene.add(this.worldProps.batch.mesh);
+    this.scene.add(this.worldProps.shadowBatch.mesh);
+    this.scene.add(this.pickups.batch.mesh);
+    this.scene.add(this.pickups.shadowBatch.mesh);
+    // Enemies push out of solid props through the props' own static broad
+    // phase, so the horde never costs N enemies x M props.
+    this.enemies.setWorldCollider((x, z, r, out) => this.worldProps.resolve(x, z, r, out));
+
+    // Undocumented. Not in settings, controls, tooltips or help - by design.
+    this.secretCode = new SecretCodeManager({
+      sequence: [
+        'ArrowUp', 'ArrowDown', 'ArrowUp', 'ArrowDown',
+        'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight',
+        'KeyH', 'KeyV',
+      ],
+      // Only listens during a run, so it can never fire from a menu.
+      isActive: () => this.state.phase === 'playing' || this.state.phase === 'paused',
+      onMatch: () => this.toggleVeil(),
+    });
   }
 
   private applyStage(stage: StageDef): void {
@@ -279,6 +324,9 @@ export class Game {
     this.scene.add(this.groundMesh);
     this.scene.background = new THREE.Color(stage.fogTint ?? '#0c0f0a');
     this.stageDecor.populate(stage, () => this.rng());
+    // Gameplay layer on top of the decorative scatter: a small number of solid
+    // blockers to shape routes, plus a handful of breakables worth destroying.
+    this.worldProps.populate(stage.propSet, () => this.rng());
   }
 
   // --- pre-run flow (menu -> character select -> stage select -> run) -----
@@ -330,9 +378,18 @@ export class Game {
     this.enemies.clear();
     this.projectiles.clear();
     this.gems.clear();
+    this.pickups.clear();
     this.treasures.clear();
     this.groundRings.clear();
     this.weaponSystem.reset(this.selectedCharacter.startWeaponId);
+    // Never carried between runs and never persisted: the sequence has to be
+    // entered again, every run, every reload.
+    this.godMode = false;
+    this.secretCode.reset();
+    // Every upgrade roll for this run - level-up cards and treasure caches
+    // alike - now leans toward this character's build. Set once here rather
+    // than passed down through each call site.
+    this.upgradeSystem.setAffinities(this.selectedCharacter.affinities);
     this.waveDirector.reset();
     this.arcanaSystem.reset();
     this.pendingLevelUps = 0;
@@ -390,7 +447,23 @@ export class Game {
       const def = PASSIVE_DEFS.find((p) => p.id === id);
       return { id, name: def?.name ?? id, count, maxStacks: def?.maxStacks ?? count };
     });
-    return { characterName: this.selectedCharacter.name, level: this.state.run.level, weapons, passives };
+    const st = this.state.stats;
+    const pct = (v: number) => `${Math.round(v * 100)}%`;
+    const stats: PauseStatEntry[] = [
+      { label: t('Vida'), value: `${Math.ceil(Math.max(0, st.health))}/${Math.ceil(st.maxHealth)}` },
+      { label: t('Daño'), value: pct(st.damageMultiplier) },
+      { label: t('Área'), value: pct(st.areaMultiplier) },
+      // Cooldown is stored as a multiplier where lower is better; the player
+      // thinks in "attack speed", so show the gain rather than the raw value.
+      { label: t('Cadencia'), value: `+${Math.max(0, Math.round((1 - st.cooldownMultiplier) * 100))}%` },
+      { label: t('Velocidad'), value: st.moveSpeed.toFixed(1) },
+      { label: t('Crítico'), value: pct(st.critChance) },
+      { label: t('Blindaje'), value: `${st.armor}` },
+      { label: t('Regen'), value: `${st.regenPerSecond.toFixed(1)}/s` },
+      { label: t('Imán'), value: st.magnetRadius.toFixed(1) },
+      { label: t('Suerte'), value: pct(st.luck) },
+    ];
+    return { characterName: this.selectedCharacter.name, level: this.state.run.level, weapons, passives, stats };
   }
 
   private resumeRun(): void {
@@ -406,6 +479,7 @@ export class Game {
     this.enemies.clear();
     this.projectiles.clear();
     this.gems.clear();
+    this.pickups.clear();
     this.treasures.clear();
     this.groundRings.clear();
     this.ui.hideAll();
@@ -546,6 +620,22 @@ export class Game {
       this.projectiles.update(animDelta);
       // Drives the ground-zone wave animation and decays per-zone tick pulses.
       this.groundRings.update(animDelta);
+      this.worldProps.update(animDelta, this.player.position.x, this.player.position.z, () => this.rng());
+      // Wider magnet than gems: a relic sliding into reach is part of the
+      // reward, and chasing one through a horde is not interesting.
+      this.pickups.update(animDelta, this.player.position.x, this.player.position.z, this.state.stats.magnetRadius * 1.35 + 0.8, 0.85);
+
+      // Push the player out of solid props AFTER movement integration, using
+      // minimum-translation so diagonal contact slides along the surface
+      // instead of stopping dead or jittering.
+      if (this.worldProps.resolve(this.player.position.x, this.player.position.z, PLAYER.radius, this.collideScratch)) {
+        this.player.position.x = this.collideScratch.x;
+        this.player.position.z = this.collideScratch.z;
+      }
+
+      // Breakables take damage from whatever weapon geometry reaches them -
+      // the player never has to aim at a prop.
+      this.sweepPropDamage();
 
       const collectRadius = 0.7;
       this.treasures.update(
@@ -717,7 +807,118 @@ export class Game {
     this.showToast(`${t('MINUTO')} ${minute} — ${t('la horda crece')}`);
   }
 
+  /**
+   * Toggles immortality. Deliberately never says so: the two lines below are
+   * the only feedback, they last about a second and a half, and nothing
+   * persists them or shows a permanent indicator. The state itself lives in
+   * `godMode`, which `applyPlayerDamage` checks BEFORE touching HP, so damage
+   * is refused rather than healed back.
+   *
+   * Offensive numbers are untouched on purpose - this is immortality, not a
+   * damage cheat, so builds still play out normally while testing.
+   */
+  private toggleVeil(): void {
+    this.godMode = !this.godMode;
+    this.showVeilToast(this.godMode ? 'The veil no longer binds you.' : 'The veil closes.');
+  }
+
+  /**
+   * The secret's own feedback: small, italic, centred, gone in ~1.5s.
+   * Deliberately NOT the gold minute/pickup toast - that box announces things
+   * the game wants you to notice.
+   */
+  private showVeilToast(text: string): void {
+    if (!this.veilToastEl) {
+      const el = document.createElement('div');
+      el.style.cssText =
+        'position:absolute;top:38%;left:50%;transform:translate(-50%,-50%);' +
+        'color:rgba(232,221,199,0.82);font-family:Georgia,"Times New Roman",serif;' +
+        'font-style:italic;font-size:0.95rem;letter-spacing:0.06em;'+
+        // #hud uppercases everything; this line is quoted prose, not a label.
+        'text-transform:none;font-weight:400;' +
+        'text-shadow:0 0 12px rgba(0,0,0,0.95), 1px 1px 0 rgba(0,0,0,0.9);' +
+        'pointer-events:none;opacity:0;transition:opacity 0.45s ease;z-index:6;';
+      this.getElement('#hud').appendChild(el);
+      this.veilToastEl = el;
+    }
+    const el = this.veilToastEl;
+    el.textContent = text;
+    el.style.opacity = '1';
+    if (this.veilToastTimer !== undefined) window.clearTimeout(this.veilToastTimer);
+    this.veilToastTimer = window.setTimeout(() => {
+      el.style.opacity = '0';
+    }, 1500);
+  }
+
   /** Generic reusable version of the toast above - same box, any message. */
+  /**
+   * Applies a collected pickup. Lives here rather than in PickupManager on
+   * purpose: every effect reaches into a different system (state, gems,
+   * enemies, audio), and the director is the only place that already owns all
+   * of them.
+   */
+  private applyPickup(kind: PickupKind, x: number, z: number): void {
+    const def = findDrop(kind);
+    const label = t(def?.name ?? kind);
+    this.particles.spawnBurst(x, z, { count: 8, colorHex: '#ffe9a8', speed: 2.6, life: 0.3 });
+    gameEvents.emit('screenShake', { intensity: 0.05, duration: 0.08 });
+
+    switch (kind) {
+      case 'gold':
+        // Gold itself is credited by MetaProgression, which owns the
+        // permanent gold multiplier; nothing to do here but announce it.
+        this.showToast(`${t('GOLD')} +${GOLD_PICKUP_VALUE}`);
+        break;
+
+      case 'ration': {
+        const before = this.state.stats.health;
+        this.state.stats.health = Math.min(this.state.stats.maxHealth, this.state.stats.health + RATION_HEAL);
+        const healed = Math.round(this.state.stats.health - before);
+        this.showToast(healed > 0 ? `${label} +${healed} HP` : `${label} — ${t('full health')}`);
+        break;
+      }
+
+      case 'vacuum': {
+        // Pull every loose gem in, without teleporting them: flipping the
+        // magnet flag reuses the gems' own inbound motion and their collect
+        // path, so XP, level-ups and VFX all fire exactly as normal.
+        let pulled = 0;
+        for (let i = 0; i < this.gems.capacity; i++) {
+          if (!this.gems.alive[i] || this.gems.magnetized[i]) continue;
+          this.gems.magnetized[i] = 1;
+          pulled++;
+        }
+        this.showToast(`${label} — ${pulled} ${t('souls')}`);
+        break;
+      }
+
+      case 'freeze': {
+        const n = this.enemies.freezeAll(FREEZE_SECONDS);
+        this.showToast(`${label} — ${n} ${t('frozen')}`);
+        break;
+      }
+
+      case 'purge': {
+        // Deliberately routed through the ordinary damage API rather than
+        // clearing arrays: kills, gem drops, the damage ledger and every death
+        // VFX must behave exactly as if the player had earned them.
+        let killed = 0;
+        for (let i = 0; i < this.enemies.capacity; i++) {
+          if (!this.enemies.alive[i] || this.enemies.isBoss[i]) continue;
+          if (this.enemies.damage(i, PURGE_DAMAGE, false, 'purge')) killed++;
+        }
+        gameEvents.emit('screenShake', { intensity: 0.32, duration: 0.35 });
+        this.showToast(`${label} — ${killed} ${t('purged')}`);
+        break;
+      }
+
+      case 'fortune':
+        this.state.stats.luck = Math.min(1, this.state.stats.luck + FORTUNE_LUCK);
+        this.showToast(`${label} — +${Math.round(FORTUNE_LUCK * 100)}% ${t('luck')}`);
+        break;
+    }
+  }
+
   private showToast(text: string): void {
     if (!this.minuteToastEl) {
       const el = document.createElement('div');
@@ -748,6 +949,15 @@ export class Game {
     });
     // A thrown axe finishing its arc kicks up dust where it lands, which is
     // what makes the parabola resolve instead of the axe just vanishing.
+    // Breakable destroyed: a few cheap pooled fragments, no rigid bodies.
+    gameEvents.on('propDestroyed', (e) => {
+      this.particles.spawnBurst(e.x, e.z, { count: 6, colorHex: e.color, speed: 3.4, life: 0.42 });
+      // Every breakable rolls the shared drop table. Level gates and luck live
+      // in the table itself, so this stays one line and stays tunable.
+      const drop = rollDrop(() => this.rng(), this.state.stats.luck, this.state.run.level);
+      if (drop) this.pickups.spawn(e.x, e.z, drop.id);
+    });
+    gameEvents.on('pickupCollected', (e) => this.applyPickup(e.kind as PickupKind, e.x, e.z));
     gameEvents.on('weaponImpact', (e) => {
       this.particles.spawnBurst(e.x, e.z, { count: 7, colorHex: '#b9a98a', speed: 2.4, life: 0.32 });
     });
@@ -809,11 +1019,12 @@ export class Game {
         goldEarned: Math.max(0, this.metaProgression.gold - this.goldAtRunStart),
         damageByPower: this.buildDamageBreakdown(),
       };
-      // A run can end while the level-up picker is still open (a pending
-      // level-up the player had not resolved yet). Close it first, otherwise
-      // two overlays stack and the dead picker is still clickable behind the
-      // results panel.
+      // A run can end while another overlay is still open - a pending
+      // level-up the player had not resolved, or the pause screen. Close both
+      // first, otherwise the panels stack and the dead one is still visible
+      // (and clickable) behind the results.
       this.ui.hideUpgradePicker();
+      this.ui.hidePause();
       this.pendingLevelUps = 0;
       if (e.victory) this.ui.showVictory(stats);
       else this.ui.showGameOver(stats);
@@ -872,6 +1083,119 @@ export class Game {
           }
         }
         return out;
+      },
+      /**
+       * QA helper: hurt the player through the real damage path.
+       *
+       * By default it respects everything that path respects, god mode
+       * included - a helper that silently ignored immortality would make the
+       * immortality tests meaningless. Pass `force` to set up a wounded
+       * player regardless: that lifts god mode and the post-hit i-frames for
+       * the single call, then restores them.
+       */
+      damagePlayer: (amount: number, force = false) => {
+        if (!force) {
+          this.applyPlayerDamage(amount);
+          return;
+        }
+        const wasGod = this.godMode;
+        this.godMode = false;
+        this.player.invulnTimer = 0;
+        this.applyPlayerDamage(amount);
+        this.godMode = wasGod;
+      },
+      /** QA helper: kill every live enemy through the normal death path, so gems/kills are credited. */
+      killAllEnemies: () => {
+        let n = 0;
+        for (let i = 0; i < this.enemies.capacity; i++) {
+          if (this.enemies.alive[i] && this.enemies.damage(i, 1e9)) n++;
+        }
+        return n;
+      },
+      /** QA helper: every live world prop (solid + breakable) with its collision box. */
+      listWorldProps: () => this.worldProps.list(),
+      /**
+       * QA helper: destroy the breakable nearest the player, exactly as a
+       * weapon would - it runs through damageArea, so the drop roll, particles
+       * and events all fire normally. Returns how many pickups exist after.
+       */
+      breakNearestProp: () => {
+        const props = this.worldProps.list().filter((p) => p.category === 1 && p.hp > 0);
+        if (props.length === 0) return { broke: false, pickups: this.pickups.list() };
+        let best = props[0];
+        let bestD = Infinity;
+        for (const p of props) {
+          const d = (p.x - this.player.position.x) ** 2 + (p.z - this.player.position.z) ** 2;
+          if (d < bestD) {
+            bestD = d;
+            best = p;
+          }
+        }
+        this.worldProps.damageArea(best.x, best.z, Math.max(best.halfW, best.halfD) + 0.5, 99999);
+        return { broke: true, x: best.x, z: best.z, pickups: this.pickups.list() };
+      },
+      /** QA helper: live pickups in the world. */
+      listPickups: () => this.pickups.list(),
+      /** QA helper: drop a specific pickup next to the player, to test its effect deterministically. */
+      spawnPickup: (kind: string, dx = 1.5, dz = 0) =>
+        this.pickups.spawn(this.player.position.x + dx, this.player.position.z + dz, kind as PickupKind),
+      /** QA helper: how many enemies are currently frozen by the Sepulchral Frost pickup. */
+      getFrozenCount: () => {
+        let n = 0;
+        for (let i = 0; i < this.enemies.capacity; i++) {
+          if (this.enemies.alive[i] && this.enemies.freezeTimer[i] > 0) n++;
+        }
+        return n;
+      },
+      /** QA helper: how many loose XP gems are currently magnetised toward the player. */
+      getMagnetizedGemCount: () => {
+        let n = 0;
+        for (let i = 0; i < this.gems.capacity; i++) {
+          if (this.gems.alive[i] && this.gems.magnetized[i]) n++;
+        }
+        return n;
+      },
+      /**
+       * QA helper: roll the real upgrade pool N times under a given
+       * character's affinities, against the CURRENT run state, and return the
+       * option-id histogram. Because the game state is held fixed, the only
+       * thing that changes between two calls is the affinity table - which is
+       * exactly what a distribution test needs to isolate. Restores whatever
+       * affinities the live run was using.
+       */
+      simulateUpgradeRolls: (characterId: string | null, rolls: number, count = 3) => {
+        const character = characterId ? CHARACTERS.find((c) => c.id === characterId) : null;
+        if (characterId && !character) {
+          console.warn(`Unknown character id: ${characterId}`);
+          return {};
+        }
+        const previous = this.selectedCharacter.affinities;
+        this.upgradeSystem.setAffinities(character ? character.affinities : null);
+        // Deterministic stream so two calls differ only by the affinity table.
+        let seed = 2463534242;
+        const rng = () => {
+          seed ^= seed << 13;
+          seed ^= seed >>> 17;
+          seed ^= seed << 5;
+          seed >>>= 0;
+          return seed / 4294967296;
+        };
+        const histogram: Record<string, number> = {};
+        for (let i = 0; i < rolls; i++) {
+          for (const option of this.upgradeSystem.rollChoices(rng, this.state.ownedPassives, count, 0, false)) {
+            histogram[option.id] = (histogram[option.id] ?? 0) + 1;
+          }
+        }
+        this.upgradeSystem.setAffinities(previous);
+        return histogram;
+      },
+      /** QA helper: a character's starting weapon id, so a test never has to hardcode the roster. */
+      getCharacterStartWeapon: (characterId: string) =>
+        CHARACTERS.find((c) => c.id === characterId)?.startWeaponId ?? '',
+      /** QA helper: the affinity table a character actually carries. */
+      getCharacterAffinities: (characterId: string) => {
+        const character = CHARACTERS.find((c) => c.id === characterId);
+        return character ? character.affinities : null;
       },
       grantLevels: (count: number) => {
         for (let i = 0; i < count; i++) {
@@ -1127,6 +1451,33 @@ export class Game {
   }
 
   /** Ranked damage share per weapon, biggest first, for the run summary. */
+  /**
+   * Sweeps live projectiles against breakable props. This covers ten of the
+   * eleven weapons for free, because their hitboxes ARE projectiles (bolts,
+   * knives, axes, crosses, shards, flasks, orbiter blades, even the whip's
+   * lash instance). Garlic, the one pure-aura weapon, reports its own tick
+   * separately - see the groundRings pulse path.
+   */
+  private sweepPropDamage(): void {
+    for (let i = 0; i < this.projectiles.capacity; i++) {
+      if (!this.projectiles.alive[i] || this.projectiles.weaponId[i] < 0) continue;
+      // The whip's lash and the orbiter's blades carry damage 0 (their weapons
+      // apply damage directly), so fall back to a flat value - breakables have
+      // 10-14 HP and are meant to pop after a couple of contacts.
+      const dmg = this.projectiles.damage[i] > 0 ? this.projectiles.damage[i] : 7;
+      this.worldProps.damageArea(this.projectiles.posX[i], this.projectiles.posZ[i], Math.max(0.5, this.projectiles.radius[i]), dmg);
+    }
+
+    // Garlic is the one weapon with no projectile at all, so its aura is
+    // applied explicitly here at exactly the radius it damages enemies with.
+    const garlic = this.weaponSystem.listOwned().find((w) => w.id === 'garlic_aura');
+    if (garlic) {
+      const e = effectAt('garlic_aura', garlic.level, garlic.evolved);
+      const radius = (e.radius ?? 2.2) * this.state.stats.areaMultiplier;
+      this.worldProps.damageArea(this.player.position.x, this.player.position.z, radius, e.damage * 0.6);
+    }
+  }
+
   private buildDamageBreakdown(): Array<{ id: string; name: string; percent: number }> {
     let total = 0;
     for (const v of this.damageByWeapon.values()) total += v;
@@ -1161,6 +1512,12 @@ export class Game {
       enemyCount: this.enemies.activeCount,
       projectileCount: this.projectiles.activeCount,
       gemCount: this.gems.pool.activeCount,
+      pickupCount: this.pickups.activeCount,
+      // Exposed for QA: luck is invisible in the HUD by design, but drop-rate
+      // and fortune-coin behaviour can only be asserted against the real value.
+      luck: this.state.stats.luck,
+      // Development/testing only. There is deliberately no UI for this.
+      godMode: this.godMode,
       particleCount: 0,
       renderer: {
         calls: info.render.calls,

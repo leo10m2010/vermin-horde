@@ -16,6 +16,36 @@ import type { PlayerStats } from './GameState';
  * Mirrors how Vampire-Survivors-style character rosters work without
  * reusing any of that game's actual character names.
  */
+
+/**
+ * AFFINITIES - how a character bends the upgrade roll toward the build they
+ * were designed for.
+ *
+ * Deliberately plain data hanging off the character, not branches inside
+ * UpgradeSystem: adding a character, or retuning one, must never mean editing
+ * the roll logic. The numbers are weight MULTIPLIERS on the shared pool, so
+ * an affinity leans the odds and never guarantees or forbids anything - every
+ * weapon and passive stays reachable for every character.
+ *
+ * Intended magnitudes (kept inside these bands by an automated check):
+ *  - starting weapon:  1.40 - 1.60
+ *  - secondary weapons: 1.15 - 1.30
+ *  - passives:          1.10 - 1.20
+ */
+export interface CharacterAffinities {
+  /** weapon id -> roll-weight multiplier (see WEAPON_ROSTER). */
+  weapons: Record<string, number>;
+  /** passive id -> roll-weight multiplier (see PASSIVE_DEFS). */
+  passives: Record<string, number>;
+  /**
+   * What the Character Select card shows. Deliberately qualitative: the card
+   * says what the character leans toward, never a raw percentage, because a
+   * printed number invites the player to do arithmetic on a weighted sample
+   * that will not match it.
+   */
+  tags: string[];
+}
+
 export interface CharacterDef {
   id: string;
   name: string;
@@ -34,6 +64,8 @@ export interface CharacterDef {
    * Measured from each character's own grid in SpriteLibraryCharacters.ts.
    */
   castAnchor: number;
+  /** How this character bends the upgrade roll. See CharacterAffinities. */
+  affinities: CharacterAffinities;
   applyTrait: (stats: PlayerStats) => void; // mutate stats once at run start
   /**
    * Optional: called once per level gained (after applyTrait's one-time
@@ -111,6 +143,13 @@ export const CHARACTERS: CharacterDef[] = [
     traitDescription: '+40% max health, -15% move speed',
     spriteKey: 'thornguard',
     castAnchor: 0.38,
+    affinities: {
+      // The rampart wants to be standing in the middle of things: short-range
+      // weapons that punish contact, and the stats that let him survive it.
+      weapons: { whip_strike: 1.55, garlic_aura: 1.25, axe_throw: 1.2 },
+      passives: { passive_health: 1.2, passive_armor: 1.2, passive_area: 1.12 },
+      tags: ['Whips and auras', 'Vitality and armor'],
+    },
     applyTrait: (stats: PlayerStats) => {
       stats.maxHealth *= 1.4;
       stats.health = stats.maxHealth;
@@ -130,6 +169,13 @@ export const CHARACTERS: CharacterDef[] = [
       '+30% move speed, +20% crit chance, -20% max health. Speed and crit bonuses fade down to +8%/+5% by level 6 (the health penalty is permanent).',
     spriteKey: 'redline',
     castAnchor: 0.77,
+    affinities: {
+      // Glass cannon: light, fast, thrown things, and the stats that turn a
+      // high fire rate into damage before the horde closes in.
+      weapons: { knife_throw: 1.55, rune_shard: 1.25, magic_wand: 1.18 },
+      passives: { passive_crit: 1.2, passive_speed: 1.18, passive_proj_speed: 1.15 },
+      tags: ['Fast projectiles', 'Crit and mobility'],
+    },
     applyTrait: (stats: PlayerStats) => {
       stats.moveSpeed *= REDLINE_SPEED_BURST;
       stats.critChance += REDLINE_CRIT_BURST;
@@ -163,6 +209,13 @@ export const CHARACTERS: CharacterDef[] = [
     traitDescription: '+25% area. +1% area every level thereafter, uncapped.',
     spriteKey: 'warden',
     castAnchor: 0.49,
+    affinities: {
+      // Space control: things that occupy ground and stay there, plus the
+      // stats that make each zone bigger and last longer.
+      weapons: { orbiter_blades: 1.55, garlic_aura: 1.28, arc_cross: 1.18 },
+      passives: { passive_area: 1.2, passive_duration: 1.18, passive_armor: 1.12 },
+      tags: ['Orbitals and zones', 'Area and duration'],
+    },
     applyTrait: (stats: PlayerStats) => {
       stats.areaMultiplier *= 1.25;
       wardenLastLevel = 1;
@@ -187,6 +240,12 @@ export const CHARACTERS: CharacterDef[] = [
       '+15% area, +15% damage. +5% damage every 5 levels, capping at level 20 (~+40% damage total).',
     spriteKey: 'cinderborn',
     castAnchor: 0.45,
+    affinities: {
+      // Burn everything: the fire line, and raw damage over utility.
+      weapons: { ember_wand: 1.55, fireball: 1.3, hex_flask: 1.2 },
+      passives: { passive_damage: 1.2, passive_duration: 1.15, passive_cooldown: 1.12 },
+      tags: ['Fire and blasts', 'Raw damage'],
+    },
     applyTrait: (stats: PlayerStats) => {
       stats.areaMultiplier *= 1.15;
       stats.damageMultiplier *= 1.15;
@@ -216,6 +275,13 @@ export const CHARACTERS: CharacterDef[] = [
       "+0.2 luck, +35% magnet radius, +15% XP gain. Level 20: Jackpot - +0.35 luck, +10% crit chance.",
     spriteKey: 'fortune',
     castAnchor: 0.68,
+    affinities: {
+      // Seeking magic and everything that feeds it: more targets found, more
+      // picked up, more rolls going your way.
+      weapons: { magic_wand: 1.5, rune_shard: 1.22, arc_cross: 1.18 },
+      passives: { passive_luck: 1.2, passive_magnet: 1.2, passive_extra_projectile: 1.15 },
+      tags: ['Seeking magic', 'Luck and pickup range'],
+    },
     applyTrait: (stats: PlayerStats) => {
       stats.luck += 0.2;
       stats.magnetRadius *= 1.35;
@@ -240,6 +306,13 @@ export const CHARACTERS: CharacterDef[] = [
     traitDescription: '+10% max health, +10% damage, +10% move speed, +10% cooldown reduction',
     spriteKey: 'steadyhand',
     castAnchor: 0.55,
+    affinities: {
+      // The generalist leans least of the six - a deliberately lower starter
+      // multiplier - so the balanced character actually plays like one.
+      weapons: { garlic_aura: 1.45, whip_strike: 1.2, axe_throw: 1.15 },
+      passives: { passive_regen: 1.18, passive_cooldown: 1.15, passive_growth: 1.12 },
+      tags: ['Aura and control', 'Regen and tempo'],
+    },
     applyTrait: (stats: PlayerStats) => {
       stats.maxHealth *= 1.1;
       stats.health = stats.maxHealth;

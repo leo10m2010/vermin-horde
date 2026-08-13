@@ -50,6 +50,8 @@ export interface EnemyTypeDef {
   behavior?: EnemyBehavior;
   /** Called once when an instance of this type spawns (e.g. custom init). */
   onSpawn?: (index: number, mgr: EnemyManager) => void;
+  /** Passes through solid world props (the ghost is incorporeal by design). */
+  ignoresWorldCollision?: boolean;
   /** Filled in by registerType: pose index -> clip name, or null when unregistered. */
   resolvedClips?: Array<string | null>;
 }
@@ -145,12 +147,31 @@ export class EnemyManager {
    * lineup in place. Never set during normal play.
    */
   readonly frozen = new Uint8Array(this.capacity);
+  /**
+   * Seconds of remaining FREEZE (the Sepulchral Frost pickup). While > 0 the
+   * enemy neither moves nor deals contact damage, but still renders - with a
+   * cold tint - so the effect is legible. Separate from `frozen`, which is an
+   * inspection-only tool with no gameplay meaning.
+   */
+  readonly freezeTimer = new Float32Array(this.capacity);
 
   private readonly types: EnemyTypeDef[] = [];
+  /**
+   * Optional world-collision resolver (see WorldProps). Injected rather than
+   * imported so EnemyManager stays pure infrastructure and can still be used
+   * without a world. Called per live enemy per frame, but it is broad-phased
+   * on the props side, so the cost is a few cell lookups - not N x M.
+   */
+  private worldCollide: ((x: number, z: number, radius: number, out: { x: number; z: number }) => boolean) | null = null;
+  private readonly collideOut = { x: 0, z: 0 };
 
   constructor() {
     this.batch = new InstancedBillboardBatch(this.capacity, spriteAtlas.texture, 'enemies', false, RENDER_ORDER.enemy);
     this.shadowBatch = new ShadowBatch(this.capacity, 'enemy-shadows');
+  }
+
+  setWorldCollider(fn: ((x: number, z: number, radius: number, out: { x: number; z: number }) => boolean) | null): void {
+    this.worldCollide = fn;
   }
 
   registerType(def: Omit<EnemyTypeDef, 'id'>): number {
@@ -249,6 +270,18 @@ export class EnemyManager {
     const tint = def.tint;
     const flash = this.flashTimer[i] > 0 ? 1 : 0;
 
+    // FROZEN: shift the tint toward pale blue so a stalled horde reads as iced
+    // rather than as a rendering hitch. Blended rather than replaced, so each
+    // enemy keeps enough of its own colour to stay identifiable.
+    let tintR = tint[0];
+    let tintG = tint[1];
+    let tintB = tint[2];
+    if (this.freezeTimer[i] > 0) {
+      tintR = tintR * 0.55 + 0.20;
+      tintG = tintG * 0.55 + 0.34;
+      tintB = tintB * 0.55 + 0.45;
+    }
+
     // Spawn-in fade/pop: fresh spawns ramp alpha 0.2->1 and scale 0.7->1
     // over SPAWN_FADE_DURATION instead of snapping to full size/opacity,
     // most noticeable for the frequent trash-mob spawns at the view edge.
@@ -270,9 +303,9 @@ export class EnemyManager {
       uv,
       size * this.facing[i],
       size,
-      tint[0],
-      tint[1],
-      tint[2],
+      tintR,
+      tintG,
+      tintB,
       spawnAlpha,
       flash,
     );
@@ -321,9 +354,26 @@ export class EnemyManager {
     this.poseDuration[index] = 0;
     this.forcedPose[index] = -1;
     this.frozen[index] = 0;
+    this.freezeTimer[index] = 0;
 
     def.onSpawn?.(index, this);
     return index;
+  }
+
+  /**
+   * Freeze every live enemy. Elites and bosses get a shortened duration rather
+   * than outright immunity, so the pickup still feels good in a boss fight
+   * without trivialising it.
+   */
+  freezeAll(seconds: number): number {
+    let n = 0;
+    for (let i = 0; i < this.capacity; i++) {
+      if (!this.alive[i]) continue;
+      const scale = this.isBoss[i] ? 0.35 : this.isElite[i] ? 0.6 : 1;
+      this.freezeTimer[i] = Math.max(this.freezeTimer[i], seconds * scale);
+      n++;
+    }
+    return n;
   }
 
   /**
@@ -432,6 +482,17 @@ export class EnemyManager {
         if (this.slowTimer[i] <= 0) this.slowFactor[i] = 1;
       }
 
+      // FROZEN BY PICKUP: hold still and deal no contact damage, but keep
+      // animating so the horde reads as suspended rather than despawned.
+      if (this.freezeTimer[i] > 0) {
+        this.freezeTimer[i] = Math.max(0, this.freezeTimer[i] - dt);
+        this.velX[i] = 0;
+        this.velZ[i] = 0;
+        if (this.flashTimer[i] > 0) this.flashTimer[i] = Math.max(0, this.flashTimer[i] - dt);
+        this.renderEnemy(i, def, dt * 0.15, 1);
+        continue;
+      }
+
       if (this.frozen[i]) {
         // Inspection lineup: hold position exactly, but keep animating below.
         this.velX[i] = 0;
@@ -477,6 +538,17 @@ export class EnemyManager {
       const slow = this.slowFactor[i];
       this.posX[i] += (this.velX[i] * slow + sepX * 22) * dt;
       this.posZ[i] += (this.velZ[i] * slow + sepZ * 22) * dt;
+
+      // Push out of solid world props. Resolution is minimum-translation, so
+      // a monster walking into a wall slides along it instead of grinding to a
+      // halt or piling up. Types flagged `ignoresWorldCollision` (the ghost)
+      // pass straight through by design.
+      if (this.worldCollide && !def.ignoresWorldCollision) {
+        if (this.worldCollide(this.posX[i], this.posZ[i], this.radius[i], this.collideOut)) {
+          this.posX[i] = this.collideOut.x;
+          this.posZ[i] = this.collideOut.z;
+        }
+      }
 
       if (Math.abs(this.velX[i]) > 0.05) this.facing[i] = this.velX[i] > 0 ? 1 : -1;
 

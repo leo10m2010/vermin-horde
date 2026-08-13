@@ -6,6 +6,7 @@ import { WEAPON_ROSTER } from '../weapons/WeaponRegistry';
 import { getWeaponLevelStep, getWeaponMetadata } from '../weapons/WeaponMetadata';
 import { describeLevelUp } from '../weapons/WeaponProgression';
 import type { WeaponSystem } from '../weapons/WeaponSystem';
+import type { CharacterAffinities } from '../game/Characters';
 
 export interface UpgradeOption {
   id: string;
@@ -163,6 +164,26 @@ export class UpgradeSystem {
   constructor(private readonly weapons: WeaponSystem) {}
 
   /**
+   * The selected character's roll affinities, or null for an unbiased pool.
+   * Set once at run start (see Game.beginRun). Every consumer of rollChoices -
+   * level-ups and treasure caches alike - picks this up automatically, and no
+   * character id is ever named in here: this class only multiplies weights by
+   * whatever data the character brought with it.
+   */
+  private affinities: CharacterAffinities | null = null;
+
+  setAffinities(affinities: CharacterAffinities | null): void {
+    this.affinities = affinities;
+  }
+
+  /** Weight multiplier this character applies to one pool entry. 1 = no lean. */
+  private affinityFor(kind: UpgradeOption['kind'], id: string): number {
+    if (!this.affinities) return 1;
+    const table = kind === 'passive' ? this.affinities.passives : this.affinities.weapons;
+    return table[id] ?? 1;
+  }
+
+  /**
    * `ownedPassives` (stack ledger, id -> count - typically GameState.ownedPassives)
    * is required so the pool can skip any passive already at its `maxStacks` cap.
    *
@@ -192,7 +213,7 @@ export class UpgradeSystem {
           directionLabel: meta ? t(meta.directionLabel) : undefined,
           fromLevel: 0,
           toLevel: 1,
-          weight: BASE_WEIGHT,
+          weight: BASE_WEIGHT * this.affinityFor('new-weapon', entry.id),
         });
       }
     }
@@ -224,7 +245,7 @@ export class UpgradeSystem {
         kind: 'weapon-level',
         fromLevel: owned.level,
         toLevel,
-        weight: BASE_WEIGHT * ownedWeightMult,
+        weight: BASE_WEIGHT * ownedWeightMult * this.affinityFor('weapon-level', owned.id),
       });
     }
 
@@ -243,7 +264,7 @@ export class UpgradeSystem {
         kind: 'passive',
         fromLevel: owned,
         toLevel: owned + 1,
-        weight: owned > 0 ? BASE_WEIGHT * ownedWeightMult : BASE_WEIGHT,
+        weight: (owned > 0 ? BASE_WEIGHT * ownedWeightMult : BASE_WEIGHT) * this.affinityFor('passive', passive.id),
       });
     }
 

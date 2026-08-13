@@ -1,4 +1,5 @@
 import { gameEvents } from '../core/EventBus';
+import { GOLD_PICKUP_VALUE } from '../world/DropTable';
 import type { PlayerStats } from './GameState';
 
 /**
@@ -159,6 +160,14 @@ export class MetaProgression {
     // Belt-and-suspenders: persist whenever a run ends, regardless of
     // whether the director also calls save() itself.
     gameEvents.on('runOver', () => this.save());
+
+    // Coin pickups from breakables ride the same permanent multiplier as
+    // every other gold source.
+    gameEvents.on('pickupCollected', (e) => {
+      if (e.kind !== 'gold') return;
+      const goldMultiplier = 1 + this.getUpgradeLevel('old_coin_purse') * 0.1;
+      this.addGold(Math.round(GOLD_PICKUP_VALUE * goldMultiplier));
+    });
 
     gameEvents.on('treasureOpened', (e) => {
       const goldMultiplier = 1 + this.getUpgradeLevel('old_coin_purse') * 0.1;

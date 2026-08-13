@@ -37,11 +37,22 @@ export interface PausePassiveEntry {
   maxStacks: number;
 }
 
+export interface PauseStatEntry {
+  label: string;
+  value: string;
+}
+
 export interface PauseBuildInfo {
   characterName: string;
   level: number;
   weapons: PauseWeaponEntry[];
   passives: PausePassiveEntry[];
+  /**
+   * The live derived stats. Without these the pause screen lists what you
+   * picked but not what those picks added up to, which is the actual question
+   * a player opens it to answer.
+   */
+  stats: PauseStatEntry[];
 }
 
 export interface UiCallbacks {
@@ -474,9 +485,12 @@ export class UiRoot {
     heading.textContent = t('Daño por poder');
     wrap.append(heading);
 
-    for (const entry of entries) {
+    // Entries arrive already ranked; the first is the run's top damage
+    // dealer and gets marked, so the single most useful fact on this screen
+    // is readable without comparing four bar lengths.
+    entries.forEach((entry, index) => {
       const row = document.createElement('div');
-      row.className = 'ui-damage-row';
+      row.className = index === 0 ? 'ui-damage-row ui-damage-row--top' : 'ui-damage-row';
 
       const icon = document.createElement('img');
       icon.className = 'ui-damage-icon';
@@ -502,8 +516,15 @@ export class UiRoot {
       pct.textContent = `${Math.round(entry.percent)}%`;
       row.append(pct);
 
+      if (index === 0) {
+        const crown = document.createElement('span');
+        crown.className = 'ui-damage-top-tag';
+        crown.textContent = t('PRINCIPAL');
+        name.append(crown);
+      }
+
       wrap.append(row);
-    }
+    });
     return wrap;
   }
 
@@ -521,6 +542,22 @@ export class UiRoot {
   }
 
   private buildPauseSections(build: PauseBuildInfo): HTMLElement[] {
+    // Derived stats first: they are the summary the two lists below explain.
+    const statsBlock = document.createElement('div');
+    statsBlock.className = 'ui-build-stats';
+    for (const stat of build.stats) {
+      const chip = document.createElement('div');
+      chip.className = 'ui-build-stat';
+      const label = document.createElement('span');
+      label.className = 'ui-build-stat-label';
+      label.textContent = stat.label;
+      const value = document.createElement('span');
+      value.className = 'ui-build-stat-value';
+      value.textContent = stat.value;
+      chip.append(label, value);
+      statsBlock.append(chip);
+    }
+
     const columns = document.createElement('div');
     columns.className = 'ui-build-columns';
 
@@ -552,7 +589,7 @@ export class UiRoot {
     passivesCol.append(passivesTitle, passivesList);
 
     columns.append(weaponsCol, passivesCol);
-    return [columns];
+    return [statsBlock, columns];
   }
 
   private buildPauseWeaponRow(w: PauseWeaponEntry): HTMLElement {

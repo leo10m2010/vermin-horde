@@ -441,6 +441,30 @@ function injectStyles(): void {
       color: var(--gh-parchment-dim, rgba(232, 221, 199, 0.72));
     }
 
+    .cs-preview-affinities {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      max-width: 460px;
+    }
+    .cs-preview-affinity-label {
+      font-size: 0.62rem;
+      letter-spacing: 0.16em;
+      color: var(--gh-parchment-dim, rgba(232, 221, 199, 0.45));
+    }
+    .cs-preview-affinity {
+      padding: 2px 9px;
+      border: 1px solid rgba(201, 162, 39, 0.42);
+      border-radius: 999px;
+      background: rgba(201, 162, 39, 0.08);
+      font-size: 0.7rem;
+      letter-spacing: 0.04em;
+      color: var(--gh-gold, #c9a227);
+      white-space: nowrap;
+    }
+
     .cs-preview-stats {
       display: flex;
       flex-direction: column;
@@ -542,7 +566,30 @@ function injectStyles(): void {
       }
     }
 
+    /* Shared entrance language (see styles.css "SHARED SCREEN TRANSITIONS"):
+       a short fade on the screen, a small rise+scale on the panel. Repeated
+       here rather than imported because this overlay is deliberately
+       self-contained, but the numbers are the same on purpose. */
+    #character-select-overlay {
+      animation: cs-screen-in 0.2s ease-out both;
+    }
+    .cs-panel {
+      animation: cs-panel-in 0.26s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+    }
+    @keyframes cs-screen-in {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    @keyframes cs-panel-in {
+      from { opacity: 0; transform: translateY(12px) scale(0.985); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
     @media (prefers-reduced-motion: reduce) {
+      #character-select-overlay,
+      .cs-panel {
+        animation: none;
+      }
       .cs-preview-inner,
       .cs-stat-fill,
       .cs-roster-item,
@@ -807,6 +854,22 @@ export class CharacterSelect {
     trait.className = 'cs-preview-trait';
     trait.textContent = t(character.traitDescription);
 
+    // Affinity tags: what the upgrade roll leans toward for this character.
+    // Qualitative on purpose - a printed percentage invites the player to
+    // check arithmetic against a weighted sample that will never match it.
+    const affinityBlock = document.createElement('div');
+    affinityBlock.className = 'cs-preview-affinities';
+    const affinityLabel = document.createElement('span');
+    affinityLabel.className = 'cs-preview-affinity-label';
+    affinityLabel.textContent = t('AFFINITIES');
+    affinityBlock.append(affinityLabel);
+    for (const tag of character.affinities.tags) {
+      const chip = document.createElement('span');
+      chip.className = 'cs-preview-affinity';
+      chip.textContent = t(tag);
+      affinityBlock.append(chip);
+    }
+
     const statsBlock = document.createElement('div');
     statsBlock.className = 'cs-preview-stats';
     for (const bar of buildStatBars(stats)) {
@@ -819,7 +882,7 @@ export class CharacterSelect {
     confirmBtn.textContent = `${t('Elegir a')} ${character.name}`;
     confirmBtn.addEventListener('click', () => this.onChosen(character));
 
-    return [portraitWrap, header, weaponBlock, trait, statsBlock, confirmBtn];
+    return [portraitWrap, header, weaponBlock, trait, affinityBlock, statsBlock, confirmBtn];
   }
 
   private buildStatRow(bar: StatBarDef): HTMLElement {

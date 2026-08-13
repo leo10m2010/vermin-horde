@@ -74,11 +74,16 @@ body {
   gap: 10px;
 }
 
-/* Portrait + name + HP block only becomes visible once a run is underway
-   (see Game.ts toggling `.hud-active` on #hud) - before a character is
-   picked there is no real character to portray, and we never fake one. */
+/* The whole HUD - portrait, name, HP, the run clock, the kill counter and the
+   weapon slots - only becomes visible once a run is underway (see Game.ts
+   toggling `.hud-active` on #hud). Before a character is picked there is no
+   real character to portray and no run to time, and a 00:00 clock ticking
+   over the main menu reads as a bug even though the numbers are honest.
+   (The power slots below carry the same gate, but keep their own rule because
+   their transform also centres them.) */
 #hud-portrait-frame,
-#hud-character-col {
+#hud-character-col,
+#hud-top-right {
   opacity: 0;
   transform: translateY(-4px);
   transition: opacity 0.3s ease, transform 0.3s ease;
@@ -86,7 +91,8 @@ body {
 }
 
 #hud.hud-active #hud-portrait-frame,
-#hud.hud-active #hud-character-col {
+#hud.hud-active #hud-character-col,
+#hud.hud-active #hud-top-right {
   opacity: 1;
   transform: translateY(0);
 }
@@ -1357,4 +1363,81 @@ body {
   .ui-panel {
     animation: none;
   }
+}
+
+/* --- Pause: derived-stat strip ----------------------------------------
+   The two build columns below say what you picked; this says what it added
+   up to. Placed first because that is the question the screen is opened to
+   answer. */
+.ui-build-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+  gap: 6px;
+  width: 100%;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(201, 162, 39, 0.22);
+}
+
+.ui-build-stat {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  padding: 4px 9px;
+  background: rgba(0, 0, 0, 0.32);
+  border: 1px solid rgba(201, 162, 39, 0.18);
+  border-radius: 3px;
+}
+
+.ui-build-stat-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(232, 221, 199, 0.62);
+}
+
+.ui-build-stat-value {
+  flex: 0 0 auto;
+  font-family: var(--gh-serif, Georgia, serif);
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--gh-gold-bright, #e8c468);
+}
+
+/* --- Results: mark the run's top damage dealer -------------------------
+   The ranked bars already encode it, but comparing four lengths is work; the
+   single most useful fact on this screen should be readable at a glance. */
+.ui-damage-row--top {
+  background: linear-gradient(90deg, rgba(201, 162, 39, 0.14), rgba(201, 162, 39, 0));
+  border-left: 2px solid var(--gh-gold-bright, #e8c468);
+  padding-left: 6px;
+  margin-left: -8px;
+  border-radius: 2px;
+}
+
+.ui-damage-row--top .ui-damage-name,
+.ui-damage-row--top .ui-damage-pct {
+  color: var(--gh-gold-bright, #e8c468);
+  font-weight: 700;
+}
+
+.ui-damage-row--top .ui-damage-fill {
+  background: linear-gradient(90deg, #e8c468, #b8121f);
+}
+
+.ui-damage-top-tag {
+  margin-left: 7px;
+  padding: 0 5px;
+  border: 1px solid rgba(201, 162, 39, 0.55);
+  border-radius: 999px;
+  font-size: 0.52rem;
+  letter-spacing: 0.12em;
+  color: var(--gh-gold-bright, #e8c468);
+  vertical-align: middle;
 }
