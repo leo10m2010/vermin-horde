@@ -205,6 +205,16 @@ Pendiente detectado en esta ronda y **deliberadamente NO tocado** (fuera de alca
 
 **QA visual real** (`npm run inspect:garlic` → `scripts/inspect-garlic-aura.mjs`): aura a Lv1/Lv4/Lv8, evolucionada, con 70 enemigos entrando y saliendo, con el jugador quieto y en movimiento, y la zona de Hex Flask. Elipse medida en pantalla ≈0.82-0.85 de alto/ancho frente al sin(58°)=0.848 que exige la cámara. 60 FPS, 12-13 draw calls en la escena aislada, sin errores de consola. Suite: 22/22 en desktop-chrome, incluido el test que compara radio dibujado contra radio de daño.
 
+### Ronda 9 (2026-08-12): grounding real — la causa no era el aura
+
+**La causa raíz estaba en `LAYER_Y`, no en Garlic.** Esos valores se usan como **posición Y de mundo** de cada billboard, y los quads están anclados por los pies (su geometría va de y=0 a y=1 hacia arriba). Con `enemy: 0.6`, `player: 0.62`, `boss: 0.9`, cada personaje y cada monstruo del juego tenía los pies literalmente a 0.6 unidades del suelo, mientras su sombra se dibujaba a 0.01. Con la cámara a 58°, el eje +Y del mundo se proyecta sobre el eje vertical de pantalla con factor 0.53, así que 0.62 unidades = **~11 px de hueco visible entre los pies y su propia sombra**, sobre un personaje de 52 px de alto: un 22% de su altura. Eso es lo que hacía que TODO pareciera flotar, el aura incluida — el aura estaba bien pegada al piso; era el personaje el que estaba en el aire.
+
+- **Capas de contacto colapsadas al suelo**: gem/enemy/elite/boss/player pasan de 0.5-0.9 a 0.010-0.024. Las diferencias de ~0.002 siguen bastando para que el z-buffer las ordene y proyectan a bastante menos de un píxel. Las capas que **sí** deben estar en el aire conservan altura real (proyectil 0.45, partícula 0.55, número de daño 1.6) — un dardo en vuelo no va por el suelo.
+- **`RENDER_ORDER` nuevo**: al compartir todos casi la misma Y, el z-buffer ya no puede ordenar decal contra sprite, así que el orden es explícito — zona de suelo (1) → sombra (2) → gemas (3) → enemigos (5) → proyectiles (6) → partículas (7) → jugador (50). Antes las sombras tenían renderOrder 1 y los sprites 0, así que las sombras se pintaban ENCIMA; no se notaba solo porque los sprites flotaban lejos de ellas.
+- **Aura con ruido en espacio de MUNDO**: el shader muestrea `valueNoise` sobre coordenadas de mundo (`uCenter + p * uRadius`), no sobre el UV del quad, así que el patrón queda clavado al terreno y la energía parece propagarse POR el suelo en vez de deslizarse con el sprite. Los anillos se deforman con ruido (nunca círculos perfectos), se rompen en arcos incompletos mediante una máscara angular animada, y el lavado base bajó lo suficiente para que la textura del terreno se vea a través de la zona.
+
+**QA visual**: `npm run inspect:garlic` — Lv1/Lv4/Lv8, evolucionada, con horda encima, jugador quieto y en movimiento, y Hex Flask. Suite 22/22 desktop-chrome, build limpio, 60 FPS.
+
 ## 6. Limitaciones conocidas / siguiente ronda sugerida
 
 - **Números de daño no están instanciados**: cada uno es un `THREE.Sprite` + `CanvasTexture` propio (no comparte draw call). Se acotó el pool a 48 para limitar el peor caso, pero una reescritura a un atlas de dígitos instanciado eliminaría esta única excepción a la regla de "todo en un draw call".

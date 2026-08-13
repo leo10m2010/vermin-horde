@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { LAYER_Y, POOL_CAPACITY } from '../core/Constants';
+import { LAYER_Y, POOL_CAPACITY, RENDER_ORDER } from '../core/Constants';
 import { gameEvents } from '../core/EventBus';
 import { IndexPool } from '../core/ObjectPool';
 import { InstancedBillboardBatch } from '../render/InstancedBillboardBatch';
@@ -65,7 +65,7 @@ export class ParticleSystem {
   private readonly unsubscribers: Array<() => void> = [];
 
   constructor() {
-    this.batch = new InstancedBillboardBatch(this.capacity, spriteAtlas.texture, 'vfx-particles');
+    this.batch = new InstancedBillboardBatch(this.capacity, spriteAtlas.texture, 'vfx-particles', false, RENDER_ORDER.particle);
     this.bindEvents();
   }
 

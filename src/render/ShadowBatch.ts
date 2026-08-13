@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { LAYER_Y } from '../core/Constants';
+import { LAYER_Y, RENDER_ORDER } from '../core/Constants';
 
 const HIDDEN_Y = -5000;
 const TEXTURE_SIZE = 64;
@@ -64,7 +64,7 @@ export class ShadowBatch {
     this.mesh.name = name;
     this.mesh.frustumCulled = false;
     this.mesh.count = capacity;
-    this.mesh.renderOrder = 1; // above the ground plane (renderOrder 0), below every sprite batch
+    this.mesh.renderOrder = RENDER_ORDER.shadow; // above the ground plane and weapon ground zones, below every sprite batch
 
     for (let i = 0; i < capacity; i++) this.hide(i);
     this.mesh.instanceMatrix.needsUpdate = true;

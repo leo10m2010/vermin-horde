@@ -1,5 +1,5 @@
 import { IndexPool } from '../core/ObjectPool';
-import { LAYER_Y, POOL_CAPACITY } from '../core/Constants';
+import { LAYER_Y, POOL_CAPACITY, RENDER_ORDER } from '../core/Constants';
 import { gameEvents } from '../core/EventBus';
 import { InstancedBillboardBatch } from '../render/InstancedBillboardBatch';
 import { spriteAtlas } from '../render/SpriteAtlas';
@@ -60,7 +60,7 @@ export class GemManager {
   readonly spawnTimer = new Float32Array(this.capacity);
 
   constructor() {
-    this.batch = new InstancedBillboardBatch(this.capacity, spriteAtlas.texture, 'gems');
+    this.batch = new InstancedBillboardBatch(this.capacity, spriteAtlas.texture, 'gems', false, RENDER_ORDER.gem);
     gameEvents.on('enemyKilled', (e) => this.spawn(e.x, e.z, e.xpValue));
   }
 

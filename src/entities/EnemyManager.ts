@@ -1,6 +1,6 @@
 import { IndexPool } from '../core/ObjectPool';
 import { SpatialHash } from '../core/SpatialHash';
-import { LAYER_Y, POOL_CAPACITY, SPATIAL_HASH_CELL } from '../core/Constants';
+import { LAYER_Y, POOL_CAPACITY, RENDER_ORDER, SPATIAL_HASH_CELL } from '../core/Constants';
 import { gameEvents } from '../core/EventBus';
 import { InstancedBillboardBatch } from '../render/InstancedBillboardBatch';
 import { ShadowBatch } from '../render/ShadowBatch';
@@ -149,7 +149,7 @@ export class EnemyManager {
   private readonly types: EnemyTypeDef[] = [];
 
   constructor() {
-    this.batch = new InstancedBillboardBatch(this.capacity, spriteAtlas.texture, 'enemies');
+    this.batch = new InstancedBillboardBatch(this.capacity, spriteAtlas.texture, 'enemies', false, RENDER_ORDER.enemy);
     this.shadowBatch = new ShadowBatch(this.capacity, 'enemy-shadows');
   }
 

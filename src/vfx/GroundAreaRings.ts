@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { LAYER_Y } from '../core/Constants';
+import { LAYER_Y, RENDER_ORDER } from '../core/Constants';
 import { IndexPool } from '../core/ObjectPool';
 
 /**
@@ -48,43 +48,67 @@ uniform float uOpacity;
 uniform float uTime;
 uniform float uPulse;      // 0..1, decays after each damage tick
 uniform float uWaveScale;  // wave count scales with radius so big auras don't look stretched
+uniform vec2 uCenter;      // world XZ of the zone centre
+uniform float uRadius;     // world-unit radius, so noise can be sampled in WORLD space
 
 varying vec2 vUv;
+
+float hash(vec2 p) {
+  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+
+float valueNoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(
+    mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
+    mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x),
+    f.y
+  );
+}
 
 void main() {
   vec2 p = vUv * 2.0 - 1.0;
   float r = length(p);
   if (r > 1.0) discard;
 
-  // Wide, soft outer falloff held back until near the rim, so the zone reads
-  // as one continuous surface that fades out rather than a bright band. An
-  // early falloff combined with the density ramp below concentrated the
-  // brightness into an annulus - which is the ring look this pass exists to
-  // remove.
-  // Falloff is held right out to the rim: the disc is drawn at exactly the
-  // weapon's damage radius, so if the fade started early the visible edge
-  // would sit inside the real hitbox and the zone would under-report its
-  // reach. Narrow band = still soft, but what you see is what hurts.
+  // Sample noise in WORLD space, not sprite space. This is what makes the
+  // energy look like it is crawling across the terrain: the pattern stays
+  // pinned to the ground as the player walks, instead of sliding along with
+  // the quad like a decal stuck to the camera.
+  vec2 world = uCenter + p * uRadius;
+
+  // Break the ring radius itself with noise so the bands are never perfect
+  // circles - concentric maths is exactly what reads as a drawn plate.
+  float warp = (valueNoise(world * 0.85 + uTime * 0.06) - 0.5) * 0.20;
+  float rn = clamp(r + warp, 0.0, 1.0);
+
+  // Soft outer falloff held out to the rim so the drawn edge matches the
+  // damage radius rather than stopping short of it.
   float edge = 1.0 - smoothstep(0.86, 1.0, r);
 
-  // Base wash: nearly flat across the disc so it reads as a continuous zone,
-  // just slightly lighter at the centre so the character is never veiled.
-  float base = mix(0.20, 0.31, smoothstep(0.0, 0.9, r));
+  // Faint, uneven base wash. Deliberately low so the terrain texture still
+  // reads THROUGH the zone - a flat opaque fill is what makes it look like a
+  // transparent platform laid on the floor.
+  float grain = valueNoise(world * 2.3 - uTime * 0.12);
+  float base = mix(0.10, 0.20, smoothstep(0.0, 0.9, rn)) * (0.65 + 0.5 * grain);
 
-  // Concentric waves crawling outward. This is the main "this lives on the
-  // floor" cue: a static wash reads as a decal, a moving one reads as a
-  // surface effect. Kept as gentle texture ON the zone - broad and low
-  // contrast - not as bright rings that redraw the old hoop.
-  float wave = sin(r * uWaveScale - uTime * 2.1);
-  wave = pow(max(wave, 0.0), 1.5) * 0.19;
-  // Fade the waves out near the very centre so they do not crawl over the
-  // character's feet.
+  // Waves, broken into incomplete arcs. The angular mask means each band is a
+  // few sweeping arcs rather than a closed ring, and it drifts over time.
+  float ang = atan(p.y, p.x);
+  float arcMask = valueNoise(vec2(ang * 1.7, uTime * 0.22));
+  arcMask = smoothstep(0.28, 0.78, arcMask);
+
+  float wave = sin(rn * uWaveScale - uTime * 2.1);
+  wave = pow(max(wave, 0.0), 1.5) * 0.22 * arcMask;
   wave *= smoothstep(0.06, 0.45, r);
 
-  // A second, slower and coarser band set, drifting the other way, keeps the
-  // pattern from looking like a regular target.
-  float slow = sin(r * (uWaveScale * 0.45) + uTime * 0.9);
-  slow = pow(max(slow, 0.0), 2.0) * 0.10 * smoothstep(0.1, 0.7, r);
+  // A second, slower, coarser set drifting the other way and masked
+  // differently, so the two never line up into a target pattern.
+  float arcMask2 = smoothstep(0.2, 0.8, valueNoise(vec2(ang * 1.1 + 3.7, -uTime * 0.17)));
+  float slow = sin(rn * (uWaveScale * 0.45) + uTime * 0.9);
+  slow = pow(max(slow, 0.0), 2.0) * 0.11 * arcMask2 * smoothstep(0.1, 0.7, r);
 
   float a = (base + wave + slow) * edge;
 
@@ -128,6 +152,8 @@ export class GroundAreaRings {
           uTime: { value: 0 },
           uPulse: { value: 0 },
           uWaveScale: { value: 16 },
+          uCenter: { value: new THREE.Vector2() },
+          uRadius: { value: 1 },
         },
         vertexShader: VERTEX_SHADER,
         fragmentShader: FRAGMENT_SHADER,
@@ -149,7 +175,7 @@ export class GroundAreaRings {
       //   ground (0) -> aura (0.5) -> character shadow (1) -> sprites.
       // The aura must sit UNDER the character's contact shadow, otherwise the
       // shadow is veiled and the character stops looking planted on the floor.
-      mesh.renderOrder = 0.5;
+      mesh.renderOrder = RENDER_ORDER.groundZone;
       mesh.position.y = LAYER_Y.ground + 0.004;
       this.group.add(mesh);
       this.meshes.push(mesh);
@@ -227,6 +253,10 @@ export class GroundAreaRings {
     // Keep the wave spacing roughly constant in WORLD units as the aura grows,
     // so a level-8 aura shows more rings rather than the same rings stretched.
     uniforms.uWaveScale.value = Math.max(9, Math.min(30, radius * 5.5));
+    // World-space anchor for the noise, so the pattern crawls over the terrain
+    // instead of travelling with the player like a sticker.
+    uniforms.uCenter.value.set(x, z);
+    uniforms.uRadius.value = radius;
   }
 
   /** Hide and free every slot (run restart). */

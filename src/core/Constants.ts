@@ -18,17 +18,56 @@ export const CAMERA = {
   far: 220,
 };
 
+/**
+ * WORLD Y positions for each visual layer - not abstract sort keys.
+ *
+ * Every sprite batch is a FEET-ANCHORED billboard (its quad spans y 0..1 from
+ * this position upward, see InstancedBillboardBatch's geometry), so whatever
+ * goes in here is literally how high off the floor that sprite's feet are.
+ * The old values (enemy 0.6, player 0.62, boss 0.9) were chosen as draw-order
+ * layers, but they had the side effect of lifting every character and monster
+ * clean off the ground: with the camera at 58 degrees, world +Y projects onto
+ * screen-up at 0.53, so 0.62 units became ~11px of visible gap between a
+ * character's feet and its own ground shadow - about 22% of the character's
+ * on-screen height. That gap is what made the whole game read as "floating",
+ * the aura included.
+ *
+ * Ground-contact layers are therefore collapsed to a hair above the floor
+ * (differences of ~0.002 are still plenty for the depth buffer to order them,
+ * and project to well under a pixel). Draw order between batches is handled
+ * explicitly via renderOrder instead - see InstancedBillboardBatch.
+ *
+ * Layers that SHOULD be off the ground keep real height: a bolt flies at
+ * waist level, a damage number floats overhead.
+ */
 export const LAYER_Y = {
   ground: 0,
-  decor: 0.01,
-  gem: 0.5,
-  projectile: 0.55,
-  enemy: 0.6,
-  elite: 0.65,
-  boss: 0.9,
-  player: 0.62,
-  particle: 0.7,
+  decor: 0.004,
+  // --- ground-contact layers: feet must touch the floor -------------------
+  gem: 0.010,
+  enemy: 0.016,
+  elite: 0.018,
+  boss: 0.020,
+  player: 0.024,
+  // --- deliberately airborne ----------------------------------------------
+  projectile: 0.45,
+  particle: 0.55,
   damageNumber: 1.6,
+};
+
+/**
+ * Draw order between the sprite batches. Ground decals must paint UNDER the
+ * things standing on them, which the depth buffer alone will not guarantee
+ * now that everything shares nearly the same Y.
+ */
+export const RENDER_ORDER = {
+  groundZone: 1, // weapon AoE decals (Garlic, Hex Flask)
+  shadow: 2, // contact shadows
+  gem: 3,
+  enemy: 5,
+  projectile: 6,
+  particle: 7,
+  player: 50, // always on top - never buried under a horde
 };
 
 export const PLAYER = {

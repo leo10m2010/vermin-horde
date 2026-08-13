@@ -1,5 +1,5 @@
 import { IndexPool } from '../core/ObjectPool';
-import { LAYER_Y, POOL_CAPACITY, WORLD } from '../core/Constants';
+import { LAYER_Y, POOL_CAPACITY, RENDER_ORDER, WORLD } from '../core/Constants';
 import { InstancedBillboardBatch } from '../render/InstancedBillboardBatch';
 import { advanceAnimFrame, spriteAtlas } from '../render/SpriteAtlas';
 
@@ -65,7 +65,7 @@ export class ProjectileManager {
   private readonly visuals: ProjectileVisual[] = [];
 
   constructor() {
-    this.batch = new InstancedBillboardBatch(this.capacity, spriteAtlas.texture, 'projectiles');
+    this.batch = new InstancedBillboardBatch(this.capacity, spriteAtlas.texture, 'projectiles', false, RENDER_ORDER.projectile);
   }
 
   registerVisual(clip: string, spriteSize: number, tint: [number, number, number] = [1, 1, 1], spins = false): number {

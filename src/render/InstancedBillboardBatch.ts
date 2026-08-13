@@ -70,7 +70,7 @@ export class InstancedBillboardBatch {
   private readonly geometry: THREE.BufferGeometry;
   private readonly material: THREE.ShaderMaterial;
 
-  constructor(capacity: number, texture: THREE.Texture, name: string, alwaysOnTop = false) {
+  constructor(capacity: number, texture: THREE.Texture, name: string, alwaysOnTop = false, renderOrder = 0) {
     this.capacity = capacity;
 
     this.geometry = new THREE.BufferGeometry();
@@ -107,7 +107,11 @@ export class InstancedBillboardBatch {
     this.mesh.name = name;
     this.mesh.frustumCulled = false; // instances move independently; whole-mesh bounds would cull the batch prematurely
     this.mesh.count = capacity;
-    if (alwaysOnTop) this.mesh.renderOrder = 50;
+    // Ground decals and contact shadows must paint UNDER whatever stands on
+    // them. Now that every ground-contact layer shares nearly the same world
+    // Y (see LAYER_Y), the depth buffer can no longer be relied on to order
+    // them, so batches declare their order explicitly.
+    this.mesh.renderOrder = alwaysOnTop ? 50 : renderOrder;
 
     this.uvRectAttr = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 4), 4);
     this.tintAttr = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 3).fill(1), 3);
