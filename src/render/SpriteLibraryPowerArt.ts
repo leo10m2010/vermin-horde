@@ -217,18 +217,37 @@ const AXE_PALETTE: Record<string, string> = {
 
 function axeGrid(): string[][] {
   const g = makeGrid(18, 18);
-  // haft running corner to corner
-  fillRectShaded(g, 8, 4, 9, 17, 'w', 'x', 'y');
-  fillRect(g, 8, 12, 9, 14, 'v'); // grip wrap
+
+  // LONG THIN HAFT running most of the diagonal. The old version had a stubby
+  // haft under a symmetric double-bit head, which at gameplay scale read as a
+  // hammer. A hacha needs a visibly long shaft and an ASYMMETRIC head.
+  fillRectShaded(g, 8, 3, 9, 17, 'w', 'x', 'y');
+  fillRect(g, 8, 11, 9, 13, 'v'); // leather grip wrap
   fillRect(g, 7, 16, 10, 17, 'v'); // pommel
-  // double-bit head, bevelled
-  fillRectShaded(g, 2, 2, 8, 8, 'm', 'h', 'd');
-  fillRectShaded(g, 9, 2, 15, 8, 'm', 'h', 'd');
-  fillRect(g, 1, 3, 2, 7, 'd'); // outer bevel
-  fillRect(g, 15, 3, 16, 7, 'd');
-  fillRect(g, 2, 3, 3, 6, 's'); // edge glint catching the light
-  fillRect(g, 4, 1, 12, 2, 'd'); // top shoulder of the head
-  fillRect(g, 7, 3, 10, 8, 'y'); // socket the haft passes through
+
+  // ONE BIG BLADE with a curved cutting edge, swept forward from the socket.
+  // Built as per-row spans so the edge is a genuine crescent rather than a box.
+  for (let y = 1; y <= 9; y++) {
+    const t = (y - 1) / 8; // 0 at the top of the blade, 1 at the bottom
+    // Edge bulges outward in the middle - the classic axe crescent.
+    const reach = Math.round(3 + Math.sin(t * Math.PI) * 4.6);
+    fillRect(g, 10, y, 10 + reach, y, 'm');
+    fillRect(g, 10 + reach - 1, y, 10 + reach, y, 'h'); // bright honed edge
+    if (y > 2 && y < 8) fillRect(g, 10, y, 11, y, 'd'); // shadow at the socket
+  }
+  // Top and bottom horns of the blade, tapering to points.
+  fillRect(g, 10, 0, 12, 0, 'm');
+  fillRect(g, 10, 10, 12, 10, 'm');
+
+  // SMALL BACK SPIKE - much smaller than the blade, which is what makes the
+  // head asymmetric and unmistakably an axe rather than a hammer.
+  fillRectShaded(g, 5, 4, 7, 7, 'm', 'h', 'd');
+  fillRect(g, 4, 5, 5, 6, 'd');
+
+  // Socket band where the head grips the haft.
+  fillRect(g, 8, 3, 9, 9, 'y');
+  fillRect(g, 7, 4, 10, 4, 'd');
+  fillRect(g, 7, 8, 10, 8, 'd');
   return g;
 }
 

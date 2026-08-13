@@ -44,6 +44,8 @@ const VICTORY_SECONDS = DIFFICULTY.rampSeconds; // survive the full escalation a
 const PLAYER_START_INVULN = 0.8;
 /** Fixed camera target for the art-inspection showcase - the lineup is built centred on the world origin. */
 const SHOWCASE_CAMERA_TARGET = new THREE.Vector3(0, 0, 0);
+/** Scratch vector reused by the screen-projection QA hook - never allocate per sample. */
+const SCREEN_PROBE = new THREE.Vector3();
 
 export class Game {
   private readonly renderer: THREE.WebGLRenderer;
@@ -949,6 +951,35 @@ export class Game {
         return { id: weaponId, level: w?.level ?? 0, evolved: w?.evolved ?? false, effect: effectAt(weaponId, w?.level ?? 1, w?.evolved ?? false) };
       },
       /** QA helper: live projectile census by weapon, for asserting counts/patterns from a test. */
+      /**
+       * QA helper: live projectiles of a weapon WITH their projected screen
+       * position. Screen space is the only place the arc can actually be
+       * verified - a world-space parabola in the wrong axis still reads as a
+       * straight climb, which is exactly how the axe regressed before.
+       * screenY is in pixels, y-down (0 = top), so rising = DECREASING.
+       */
+      getProjectileScreenPositions: (weaponId: string) => {
+        const numericId = this.weaponSystem.getWeaponNumericId(weaponId);
+        const out: Array<{ index: number; x: number; y: number; z: number; screenX: number; screenY: number }> = [];
+        if (numericId === -1) return out;
+        const w = this.canvas.clientWidth;
+        const h = this.canvas.clientHeight;
+        for (let i = 0; i < this.projectiles.capacity; i++) {
+          if (!this.projectiles.alive[i] || this.projectiles.weaponId[i] !== numericId) continue;
+          const y = LAYER_Y.projectile + this.projectiles.heightOffset[i];
+          SCREEN_PROBE.set(this.projectiles.posX[i], y, this.projectiles.posZ[i]);
+          SCREEN_PROBE.project(this.camera);
+          out.push({
+            index: i,
+            x: this.projectiles.posX[i],
+            y,
+            z: this.projectiles.posZ[i],
+            screenX: (SCREEN_PROBE.x * 0.5 + 0.5) * w,
+            screenY: (-SCREEN_PROBE.y * 0.5 + 0.5) * h,
+          });
+        }
+        return out;
+      },
       getProjectileCensus: (weaponId: string) => {
         const numericId = this.weaponSystem.getWeaponNumericId(weaponId);
         const out: Array<{ x: number; z: number; vx: number; vz: number; radius: number }> = [];

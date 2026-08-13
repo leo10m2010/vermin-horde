@@ -95,6 +95,8 @@ interface ThreeGameTestHooks {
     weaponId: string,
     level: number | 'evolved',
   ): { id: string; level: number; evolved: boolean; effect: Record<string, number | undefined> };
+  /** QA helper: live projectiles with their projected SCREEN position (screenY is pixels, y-down). */
+  getProjectileScreenPositions(weaponId: string): Array<{ index: number; x: number; y: number; z: number; screenX: number; screenY: number }>;
   /** QA helper: every live projectile belonging to a weapon (position, velocity, hit radius). */
   getProjectileCensus(weaponId: string): Array<{ x: number; z: number; vx: number; vz: number; radius: number }>;
   /** QA helper: where the whip cord sits relative to the current character's sprite, in world units. */

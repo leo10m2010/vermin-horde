@@ -155,20 +155,27 @@ test.describe('power mechanics', () => {
     });
   }
 
-  test('axe trajectory stays upward regardless of movement direction', async ({ page }) => {
+  test('axe trajectory is unaffected by movement in any direction', async ({ page }) => {
     await startRun(page);
     await showcase(page, 'axe_throw', 1);
+
+    // The axe no longer carries engine velocity at all: it is spawned with
+    // vx = vz = 0 and AxeWeapon drives its own ballistic position each frame,
+    // because a constant velZ was what made it climb the screen forever (see
+    // tests/axe-trajectory.spec.ts). Zero velocity is therefore the property
+    // that guarantees player movement cannot leak into the throw - there is
+    // no velocity term for it to leak into.
     for (const key of ['ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowUp']) {
       await page.keyboard.down(key);
       await page.waitForTimeout(400);
-      const vels = await page.evaluate(() => window.__THREE_GAME_TEST_HOOKS__!.getProjectileCensus('axe_throw'));
+      const live = await page.evaluate(() => window.__THREE_GAME_TEST_HOOKS__!.getProjectileCensus('axe_throw'));
       await page.keyboard.up(key);
-      for (const v of vels) {
-        // -Z is "up the screen". Every axe must be travelling that way.
-        expect(v.vz).toBeLessThan(0);
-        // and essentially straight up: |vx| must be small next to |vz|.
-        expect(Math.abs(v.vx)).toBeLessThan(Math.abs(v.vz));
+      expect(live.length, `no axe in flight while holding ${key}`).toBeGreaterThan(0);
+      for (const v of live) {
+        expect(Math.abs(v.vx), `axe picked up X velocity while holding ${key}`).toBeLessThan(0.001);
+        expect(Math.abs(v.vz), `axe picked up Z velocity while holding ${key}`).toBeLessThan(0.001);
       }
+      await page.waitForTimeout(200);
     }
   });
 
