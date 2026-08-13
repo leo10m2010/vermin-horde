@@ -69,6 +69,18 @@ const CHAR_SPRITE_KEY = 'thornguard';
 const CHAR_SIZE = 5.6;
 
 const EMBER_COUNT = 40;
+
+/**
+ * Menu bat flight paths. Depth (`z`) is staggered so they weave in front of
+ * and behind the tombstone row, which is the whole point of moving them out
+ * of the DOM overlay - a CSS sprite can only ever sit flatly on top.
+ */
+const MENU_BATS = [
+  { speed: 0.34, phase: 0.0, radiusX: 11.0, offsetX: 1.0, baseY: 8.4, bobY: 0.8, z: -8.5, size: 0.85, alpha: 0.5 },
+  { speed: 0.27, phase: 2.1, radiusX: 13.5, offsetX: 2.0, baseY: 10.2, bobY: 1.1, z: -12.0, size: 0.6, alpha: 0.38 },
+  { speed: 0.41, phase: 4.0, radiusX: 9.0, offsetX: 3.0, baseY: 7.1, bobY: 0.6, z: -10.5, size: 0.7, alpha: 0.44 },
+] as const;
+const MENU_BAT_COUNT = MENU_BATS.length;
 const FOG_COUNT = 12;
 const FULL_UV: UVRect = [0, 0, 1, 1];
 
@@ -123,6 +135,15 @@ export class MenuScene {
   readonly camera: THREE.OrthographicCamera;
 
   private readonly characterBatch: InstancedBillboardBatch;
+  /**
+   * Bat silhouettes drifting through the menu. These used to be CSS-animated
+   * DOM sprites in MenuBackdrop.ts, layered OVER the Three.js scene - two
+   * atmosphere systems competing in front of each other. Moving them into the
+   * scene means they share its depth, fog tint and lighting, so the menu
+   * reads as one composition instead of a canvas with stickers on top.
+   */
+  private readonly batBatch: InstancedBillboardBatch;
+  private batAnimTimer = 0;
   private readonly shadowBatch: ShadowBatch;
   private readonly emberBatch: InstancedBillboardBatch;
   private readonly fogBatch: InstancedBillboardBatch;
@@ -256,6 +277,8 @@ export class MenuScene {
     // matching Player.ts's own convention for the same reason.
     this.characterBatch = new InstancedBillboardBatch(1, spriteAtlas.texture, 'menu-character', true);
     this.scene.add(this.characterBatch.mesh);
+    this.batBatch = new InstancedBillboardBatch(MENU_BAT_COUNT, spriteAtlas.texture, 'menu-bats');
+    this.scene.add(this.batBatch.mesh);
 
     this.shadowBatch = new ShadowBatch(1, 'menu-character-shadow');
     this.shadowBatch.set(0, 0, 0, 1.15);
@@ -311,6 +334,7 @@ export class MenuScene {
     this.updateFadeMaterials();
     this.updateLights();
     this.updateCharacter(delta);
+    this.updateBats(delta);
     this.updateEmbers();
     this.updateFog();
   }
@@ -345,6 +369,7 @@ export class MenuScene {
   /** Releases every geometry/material/texture this scene created. Does NOT dispose `spriteAtlas.texture` - that atlas is shared/owned by the rest of the game. */
   dispose(): void {
     this.characterBatch.dispose();
+    this.batBatch.dispose();
     this.shadowBatch.dispose();
     this.emberBatch.dispose();
     this.fogBatch.dispose();
@@ -415,6 +440,35 @@ export class MenuScene {
     const uv = spriteAtlas.getUV(frame.cellIndex);
     this.characterBatch.set(0, 0, 0, 0, uv, CHAR_SIZE, CHAR_SIZE, 1, 1, 1, this.fadeAlpha, 0);
     this.characterBatch.commit();
+  }
+
+  /**
+   * Lazy figure-eight flight paths at different depths. Purely decorative, so
+   * it reuses the shared enemy bat clip rather than authoring a second sprite.
+   */
+  private updateBats(delta: number): void {
+    const clipName = 'enemy_bat_walk';
+    if (!spriteAtlas.hasClip(clipName)) {
+      for (let i = 0; i < MENU_BAT_COUNT; i++) this.batBatch.hide(i);
+      this.batBatch.commit();
+      return;
+    }
+    const clip = spriteAtlas.getClip(clipName);
+    const frame = advanceAnimFrame(clip, this.batAnimTimer, this.reducedMotion ? 0 : delta);
+    this.batAnimTimer = frame.timer;
+    const uv = spriteAtlas.getUV(frame.cellIndex);
+
+    const t = this.simTime;
+    for (let i = 0; i < MENU_BAT_COUNT; i++) {
+      const cfg = MENU_BATS[i];
+      const phase = t * cfg.speed + cfg.phase;
+      const x = Math.sin(phase) * cfg.radiusX + cfg.offsetX;
+      const y = cfg.baseY + Math.sin(phase * 2) * cfg.bobY;
+      // Mirror to match travel direction so they never fly backwards.
+      const facing = Math.cos(phase) >= 0 ? 1 : -1;
+      this.batBatch.set(i, x, y, cfg.z, uv, cfg.size * facing, cfg.size, 0.16, 0.13, 0.22, this.fadeAlpha * cfg.alpha, 0);
+    }
+    this.batBatch.commit();
   }
 
   private updateEmbers(): void {

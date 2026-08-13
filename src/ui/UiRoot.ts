@@ -1,5 +1,4 @@
 import { getSettingsIconDataUrl, getUpgradeIconDataUrl } from './Icons';
-import { createMenuBackdrop } from './MenuBackdrop';
 import { getLang, setLang, t } from '../i18n';
 
 export interface UpgradeOptionLike {
@@ -96,6 +95,7 @@ export class UiRoot {
   private readonly victoryStatsEl: HTMLElement;
   private readonly bossBannerEl: HTMLElement | null;
   private bossBannerTimer: number | undefined;
+  private menuActionsEl!: HTMLElement;
   private evolutionEl!: HTMLElement;
   private evolutionTimer: number | undefined;
 
@@ -113,21 +113,24 @@ export class UiRoot {
       const subtitle = document.createElement('p');
       subtitle.className = 'ui-subtitle';
       subtitle.textContent = t('Sobrevive a la horda. Sube de nivel. Aguanta.');
-      const startBtn = this.buildButton(t('Comenzar'), 'ui-btn--primary', () => this.callbacks.onStartRun());
-      const shopBtn = this.buildButton(t('Tienda'), 'ui-btn--secondary', () => this.callbacks.onOpenShop());
-      const menuActions = document.createElement('div');
-      menuActions.className = 'ui-menu-actions';
-      menuActions.append(startBtn, shopBtn);
-      panel.append(title, subtitle, menuActions);
+
+      this.menuActionsEl = document.createElement('div');
+      this.menuActionsEl.className = 'ui-menu-actions';
+      panel.append(title, subtitle, this.menuActionsEl);
       panel.append(this.buildSettingsIcon());
       return panel;
     });
-    // Purely decorative atmosphere layer (drifting fog, embers, bat
-    // silhouettes) prepended behind the menu panel. Lives entirely in its
-    // own module (MenuBackdrop.ts) and is CSS-animated, so it never touches
-    // the Three.js canvas/scene and needs no per-frame JS to pause/resume -
-    // hiding the overlay already removes it from the render tree.
-    this.mainMenuEl.prepend(createMenuBackdrop());
+    // The panel is laid out to one side (see .ui-overlay--menu in styles.css)
+    // rather than centred, so the Three.js MenuScene behind it stays visible
+    // instead of being covered by a full-width slab.
+    this.mainMenuEl.classList.add('ui-overlay--menu');
+    // NOTE: the menu's fog / embers / bats used to be a second, CSS-animated
+    // DOM layer here (MenuBackdrop.ts) drawn on top of the Three.js MenuScene,
+    // which already renders its own fog and embers. Two atmosphere systems
+    // competing in front of each other never read as one composition, so the
+    // DOM layer is gone and MenuScene now owns all of it - including the bats,
+    // which live at real depths and weave behind the tombstones. The DOM keeps
+    // UI only.
 
     this.pauseEl = this.buildOverlay('ui-pause', () => {
       const panel = this.buildPanel('ui-panel--wide');
@@ -246,7 +249,23 @@ export class UiRoot {
     }, 1700);
   }
 
-  showMainMenu(): void {
+  /**
+   * `canContinue` adds a CONTINUAR entry at the top when a run is paused and
+   * can still be resumed. Buttons are rebuilt per show (not hidden/unhidden)
+   * so the stagger index stays correct whichever set is present.
+   */
+  showMainMenu(options: { canContinue?: boolean } = {}): void {
+    const buttons: HTMLElement[] = [];
+    if (options.canContinue) {
+      buttons.push(this.buildButton(t('Continuar'), 'ui-btn--primary', () => this.callbacks.onResumeRun()));
+      buttons.push(this.buildButton(t('Jugar'), 'ui-btn--secondary', () => this.callbacks.onStartRun()));
+    } else {
+      buttons.push(this.buildButton(t('Jugar'), 'ui-btn--primary', () => this.callbacks.onStartRun()));
+    }
+    buttons.push(this.buildButton(t('Personajes'), 'ui-btn--secondary', () => this.callbacks.onStartRun()));
+    buttons.push(this.buildButton(t('Mejoras'), 'ui-btn--secondary', () => this.callbacks.onOpenShop()));
+    buttons.forEach((btn, i) => btn.style.setProperty('--btn-index', String(i)));
+    this.menuActionsEl.replaceChildren(...buttons);
     this.show(this.mainMenuEl);
   }
 

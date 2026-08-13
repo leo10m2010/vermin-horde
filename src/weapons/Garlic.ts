@@ -4,8 +4,12 @@ import { VisualCache } from './WeaponBase';
 import { effectAt } from './WeaponProgression';
 
 const BASE_RADIUS = 2.2;
-const RING_COLOR = '#ffcf7a';
-const RING_OPACITY = 0.5;
+// Warm gold reads clearly against every stage's dark ground without fighting
+// it. The evolved form swaps to violet so the transformation is visible on
+// the floor, not just in the numbers.
+const ZONE_COLOR = '#ffcf7a';
+const ZONE_COLOR_EVOLVED = '#c98aff';
+const ZONE_OPACITY = 0.62;
 const EVOLVED_LIFESTEAL_FRACTION = 0.08; // evolved-only: fraction of total tick damage dealt returned as player healing
 
 /**
@@ -42,7 +46,16 @@ export class GarlicWeapon implements Weapon {
     const radius = this.auraRadius(ctx.stats.areaMultiplier);
 
     if (this.ringIndex === -1) this.ringIndex = ctx.groundRings.acquire();
-    ctx.groundRings.set(this.ringIndex, ctx.playerX, ctx.playerZ, radius, RING_COLOR, RING_OPACITY);
+    // ONE radius drives both this ground zone and the damage query below, and
+    // the zone renderer applies it 1:1, so the drawn edge IS the hit edge.
+    ctx.groundRings.set(
+      this.ringIndex,
+      ctx.playerX,
+      ctx.playerZ,
+      radius,
+      this.evolved ? ZONE_COLOR_EVOLVED : ZONE_COLOR,
+      ZONE_OPACITY,
+    );
 
     this.cooldown -= ctx.dt;
     if (this.cooldown > 0) return;
@@ -64,6 +77,9 @@ export class GarlicWeapon implements Weapon {
       // Evolved aura drains life from everything it burns, healing the player as it ticks.
       ctx.stats.health = Math.min(ctx.stats.maxHealth, ctx.stats.health + totalDealt * EVOLVED_LIFESTEAL_FRACTION);
     }
+    // Tick feedback: the zone itself swells briefly, so the pulse rate tells
+    // the player how fast the aura is ticking as cooldown upgrades land.
+    ctx.groundRings.pulse(this.ringIndex);
     gameEvents.emit('weaponFired', { weaponId: this.id, x: ctx.playerX, z: ctx.playerZ });
   }
 

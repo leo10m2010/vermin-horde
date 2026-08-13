@@ -11,7 +11,8 @@
     "verify:visual": "playwright test tests/visual.spec.ts",
     "inspect:canvas": "node scripts/inspect-threejs-canvas.mjs",
     "inspect:enemies": "node scripts/inspect-enemy-showcase.mjs",
-    "inspect:powers": "node scripts/inspect-power-showcase.mjs"
+    "inspect:powers": "node scripts/inspect-power-showcase.mjs",
+    "inspect:garlic": "node scripts/inspect-garlic-aura.mjs"
   },
   "dependencies": {
     "lil-gui": "^0.21.0",

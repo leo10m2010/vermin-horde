@@ -178,7 +178,7 @@ export class Game {
     this.applyStaticHudTranslations();
     this.buildPowerSlots();
     // Respect the OS-level setting for the WebGL side too - CSS already
-    // covers the DOM/menu-backdrop animations on its own via @media queries.
+    // covers the remaining DOM/menu animations on its own via @media queries.
     this.applyReducedMotion(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false);
     this.menuScene.playIntro();
     this.ui.showMainMenu();
@@ -539,6 +539,8 @@ export class Game {
         );
       }
       this.projectiles.update(animDelta);
+      // Drives the ground-zone wave animation and decays per-zone tick pulses.
+      this.groundRings.update(animDelta);
 
       const collectRadius = 0.7;
       this.treasures.update(

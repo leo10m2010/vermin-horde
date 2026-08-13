@@ -183,7 +183,27 @@ Pendiente detectado en esta ronda y **deliberadamente NO tocado** (fuera de alca
 - **HUD (sección 29)**: los slots marcan *listo para evolucionar* con un pulso dorado en cuanto se cumple el requisito (la pasiva entra en la firma de diff, así que reacciona al recogerla, no solo al subir de nivel) y *evolucionado* con borde brillante, más `title` descriptivo.
 - **Bug corregido**: si la run terminaba con el selector de mejora abierto, quedaban dos overlays apilados y el picker muerto seguía siendo clicable detrás del panel de resultados.
 
-**Pendiente real (NO hecho):** el rediseño de Main Menu, Character Select y Stage Select (fases 8-9) y el panel de pausa ampliado (fase 10) no se han tocado; siguen como estaban en la ronda 5.
+### Ronda 7c — Main Menu y cierre de UI
+
+- **Una sola atmósfera (sección 23)**: `MenuBackdrop.ts` **eliminado**. Renderizaba niebla, brasas y murciélagos en DOM/CSS *encima* de `MenuScene`, que ya dibuja su propia niebla y brasas en Three.js — dos sistemas atmosféricos compitiendo delante uno del otro. Ahora la escena 3D es la única fuente: los murciélagos se movieron a un `InstancedBillboardBatch` propio dentro de `MenuScene`, con profundidades reales (z −8.5/−12/−10.5) para que se entrelacen con las lápidas en vez de flotar planos por delante. Tinte casi negro y tamaño reducido: son siluetas lejanas contra la luna, no enemigos de partida. ~185 líneas de CSS muertas borradas.
+- **Composición del menú (sección 24)**: el panel ya no tapa la escena — se ancla a un lado con fondo semitransparente y `backdrop-filter`, dejando visibles la luna, la niebla y el personaje en idle. Botones apilados con entrada secuencial (70 ms entre cada uno), hover con desplazamiento lateral corto, título y subtítulo con entrada propia. Bajo 720 px vuelve a centrarse, que es lo único razonable en móvil. `showMainMenu({ canContinue })` añade **CONTINUAR** cuando hay una run pausada.
+- **Transiciones compartidas (sección 31)**: un vocabulario mínimo — fade del overlay + slide/scale del panel — aplicado a `.ui-overlay`/`.ui-panel`, así que Main Menu → Character Select → Stage Select → run ya no son cortes secos. Dos keyframes, no una librería, y todo bajo `prefers-reduced-motion`.
+- **Ya estaban hechos de la ronda 5** (verificado, no rehecho): Character Select ya usa `getWeaponMetadata` en vez de una lista manual de nombres de arma (sección 26), y el panel de pausa ya muestra personaje + poderes con estado de evolución + pasivas con stacks (sección 28).
+- **Responsive (sección 33)**: comprobado a 1920×1080, 1366×768 y 390×844 — sin scroll horizontal ni vertical en ninguna, sin errores de consola.
+
+### Ronda 8 (2026-08-12): Garlic Aura como zona de suelo
+
+**Causa real (encontrada en el código, no supuesta):** la geometría del aura YA estaba correctamente tumbada en el plano XZ (`rotateX(-PI/2)`), así que la perspectiva nunca fue el problema. Lo que fallaba era **qué se dibujaba encima**: `RingGeometry(0.78, 1, 10)` — un contorno hueco, con solo 10 segmentos radiales, en aditivo y color plano. Un anillo duro y vacío no le da al ojo ninguna superficie a la que agarrarse contra el piso, y los 10 segmentos hacían visible el decágono (se cuentan los lados rectos en la captura). De ahí la lectura de "aro suspendido".
+
+- **`GroundAreaRings` reescrito**: un disco relleno (quad plano + disco recortado en el fragment shader) con todo pintado proceduralmente en un solo draw: lavado base casi uniforme, ondas concéntricas avanzando hacia fuera, segunda banda más lenta en sentido contrario, caída suave en el borde y pulso por tick. Círculo perfecto a cualquier tamaño — ya no hay segmentos visibles.
+- **Blending normal en vez de aditivo**: la zona se lee como algo pintado sobre el suelo del mundo y no como un brillo delante de él, y los enemigos que la pisan no se queman.
+- **Orden de dibujado**: suelo (0) → aura (0.5) → sombra del personaje (1) → sprites. El aura pasó de `y = ground + 0.02` a `ground + 0.004`, por debajo de la sombra de contacto: si el aura tapa la sombra, el personaje deja de parecer plantado.
+- **Radio visual == hitbox**: el disco se escala 1:1 con el radio de daño y la caída del borde se estrecha a 0.86→1.0, así que el borde visible coincide con el círculo que hace daño en vez de quedarse corto.
+- **Pulso por tick**: `groundRings.pulse()` en cada tick de daño — hinchazón breve de brillo/densidad. Como se dispara desde el propio tick, la frecuencia del pulso comunica sola las mejoras de cooldown.
+- **Progresión y evolución**: el radio dibujado crece de verdad (2.2 → 3.2 → 4.3 → 5.16 evolucionado, medido en pantalla), las ondas se re-escalan en unidades de mundo para que un aura grande muestre más anillos en vez de los mismos estirados, y la evolución cambia a violeta **siguiendo como ground effect** — nunca aro ni escudo.
+- **Hex Flask**: usa el mismo renderer, así que sus charcos heredan la corrección sin tocar el arma.
+
+**QA visual real** (`npm run inspect:garlic` → `scripts/inspect-garlic-aura.mjs`): aura a Lv1/Lv4/Lv8, evolucionada, con 70 enemigos entrando y saliendo, con el jugador quieto y en movimiento, y la zona de Hex Flask. Elipse medida en pantalla ≈0.82-0.85 de alto/ancho frente al sin(58°)=0.848 que exige la cámara. 60 FPS, 12-13 draw calls en la escena aislada, sin errores de consola. Suite: 22/22 en desktop-chrome, incluido el test que compara radio dibujado contra radio de daño.
 
 ## 6. Limitaciones conocidas / siguiente ronda sugerida
 
