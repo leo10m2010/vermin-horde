@@ -45,7 +45,8 @@ const EVOLVED_KNOCKBACK_DISTANCE = 0.9;
  * the body. The player sprite spans roughly y 0.02 .. 1.52, so this sits at
  * arm level rather than at the feet or over the head.
  */
-const HAND_HEIGHT = 0.72;
+/** Fallback when no character anchor is supplied (e.g. the default adventurer sprite). */
+const DEFAULT_HAND_HEIGHT = 0.72;
 
 interface PendingLash {
   at: number; // ctx.elapsed timestamp when this lash resolves
@@ -76,6 +77,11 @@ export class WhipStrikeWeapon implements Weapon {
   constructor(visuals: VisualCache, private readonly weaponNumericId: number) {
     this.visualId = visuals.get('whip_slash', 1.9, [1, 1, 1], false);
     this.evolvedVisualId = visuals.get('whip_slash_evo', 1.9, [1, 1, 1], false);
+  }
+
+  /** World Y the cord should leave the body at, from the active character's own metadata. */
+  private handHeight(ctx: WeaponContext): number {
+    return ctx.castAnchorY > 0 ? ctx.castAnchorY : DEFAULT_HAND_HEIGHT;
   }
 
   /** How many horizontal sides this level strikes: 1 (fixed side) or 2 (both). */
@@ -123,7 +129,7 @@ export class WhipStrikeWeapon implements Weapon {
         continue;
       }
       ctx.projectiles.setPosition(s.index, ctx.playerX + s.side * s.reach * 0.5, ctx.playerZ);
-      ctx.projectiles.setHeightOffset(s.index, HAND_HEIGHT - s.height * 0.5 - LAYER_Y.projectile);
+      ctx.projectiles.setHeightOffset(s.index, this.handHeight(ctx) - s.height * 0.5 - LAYER_Y.projectile);
     }
   }
 
@@ -187,7 +193,7 @@ export class WhipStrikeWeapon implements Weapon {
       // The lash art is centred vertically in its cell, so the cord renders at
       // (quad bottom + height/2). Offsetting by that much below HAND_HEIGHT
       // puts the cord level with the wielder's hand instead of over their head.
-      ctx.projectiles.setHeightOffset(index, HAND_HEIGHT - height * 0.5 - LAYER_Y.projectile);
+      ctx.projectiles.setHeightOffset(index, this.handHeight(ctx) - height * 0.5 - LAYER_Y.projectile);
       this.liveSlashes.push({ index, side, reach, height });
     }
   }

@@ -536,6 +536,9 @@ export class Game {
           this.player.velocity.x,
           this.player.velocity.z,
           this.state.stats,
+          // World Y of this character's weapon hand, so hand-originating
+          // visuals (the whip cord) leave the body at the right height.
+          LAYER_Y.player + this.selectedCharacter.castAnchor * 1.5,
         );
       }
       this.projectiles.update(animDelta);
@@ -740,6 +743,11 @@ export class Game {
       this.state.run.kills += 1;
       if (e.isElite) this.state.run.eliteKills += 1;
       if (e.isBoss) this.state.run.bossKills += 1;
+    });
+    // A thrown axe finishing its arc kicks up dust where it lands, which is
+    // what makes the parabola resolve instead of the axe just vanishing.
+    gameEvents.on('weaponImpact', (e) => {
+      this.particles.spawnBurst(e.x, e.z, { count: 7, colorHex: '#b9a98a', speed: 2.4, life: 0.32 });
     });
     gameEvents.on('enemyHit', (e) => {
       this.state.run.damageDealt += e.damage;
@@ -957,6 +965,23 @@ export class Game {
           }
         }
         return out;
+      },
+      /**
+       * QA helper: where the whip cord sits relative to the CURRENT
+       * character's sprite, in world units. Lets the anchor be verified per
+       * character by measurement instead of eyeballing six screenshots.
+       */
+      getWhipAnchorDebug: () => {
+        const spriteHeight = 1.5; // Player.SPRITE_WORLD_SIZE
+        const feetY = LAYER_Y.player;
+        const cordY = feetY + this.selectedCharacter.castAnchor * spriteHeight;
+        return {
+          character: this.selectedCharacter.id,
+          feetY,
+          spriteTopY: feetY + spriteHeight,
+          cordY,
+          cordFractionOfHeight: (cordY - feetY) / spriteHeight,
+        };
       },
       /** QA helper: radii of the ground rings actually being drawn this frame (Garlic aura, Hex Flask zones). */
       getGroundRingRadii: () => this.groundRings.activeRadii(),

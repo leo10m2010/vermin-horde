@@ -62,8 +62,9 @@ export class WeaponSystem {
     playerVX: number,
     playerVZ: number,
     stats: PlayerStats,
+    castAnchorY = 0.72,
   ): void {
-    const ctx: WeaponContext = { enemies: this.enemies, projectiles: this.projectiles, groundRings: this.groundRings, stats, playerX, playerZ, playerVX, playerVZ, dt, elapsed, rng: this.rng };
+    const ctx: WeaponContext = { enemies: this.enemies, projectiles: this.projectiles, groundRings: this.groundRings, stats, playerX, playerZ, playerVX, playerVZ, castAnchorY, dt, elapsed, rng: this.rng };
     for (const weapon of this.owned.values()) weapon.update(ctx);
     this.resolveProjectileHits(ctx);
   }

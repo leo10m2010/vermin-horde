@@ -23,6 +23,17 @@ export interface CharacterDef {
   startWeaponId: string;
   traitDescription: string; // human-readable, shown on the select card
   spriteKey: string; // clip-name prefix - see SpriteLibraryCharacters.ts
+  /**
+   * Height of this character's WEAPON HAND as a fraction of their sprite
+   * height (0 = feet, 1 = top of head). Weapons that must visibly originate
+   * from the hand - the whip cord, and any future cast/muzzle effect - read
+   * it through `WeaponContext.castAnchorY` instead of assuming one height for
+   * everyone. The six sprites genuinely differ here: Brakka grips low at his
+   * hip (0.38) while Vex holds a dagger up by their shoulder (0.77), so a
+   * single shared constant is visibly wrong for somebody either way.
+   * Measured from each character's own grid in SpriteLibraryCharacters.ts.
+   */
+  castAnchor: number;
   applyTrait: (stats: PlayerStats) => void; // mutate stats once at run start
   /**
    * Optional: called once per level gained (after applyTrait's one-time
@@ -99,6 +110,7 @@ export const CHARACTERS: CharacterDef[] = [
     startWeaponId: 'whip_strike',
     traitDescription: '+40% max health, -15% move speed',
     spriteKey: 'thornguard',
+    castAnchor: 0.38,
     applyTrait: (stats: PlayerStats) => {
       stats.maxHealth *= 1.4;
       stats.health = stats.maxHealth;
@@ -117,6 +129,7 @@ export const CHARACTERS: CharacterDef[] = [
     traitDescription:
       '+30% move speed, +20% crit chance, -20% max health. Speed and crit bonuses fade down to +8%/+5% by level 6 (the health penalty is permanent).',
     spriteKey: 'redline',
+    castAnchor: 0.77,
     applyTrait: (stats: PlayerStats) => {
       stats.moveSpeed *= REDLINE_SPEED_BURST;
       stats.critChance += REDLINE_CRIT_BURST;
@@ -149,6 +162,7 @@ export const CHARACTERS: CharacterDef[] = [
     startWeaponId: 'orbiter_blades',
     traitDescription: '+25% area. +1% area every level thereafter, uncapped.',
     spriteKey: 'warden',
+    castAnchor: 0.49,
     applyTrait: (stats: PlayerStats) => {
       stats.areaMultiplier *= 1.25;
       wardenLastLevel = 1;
@@ -172,6 +186,7 @@ export const CHARACTERS: CharacterDef[] = [
     traitDescription:
       '+15% area, +15% damage. +5% damage every 5 levels, capping at level 20 (~+40% damage total).',
     spriteKey: 'cinderborn',
+    castAnchor: 0.45,
     applyTrait: (stats: PlayerStats) => {
       stats.areaMultiplier *= 1.15;
       stats.damageMultiplier *= 1.15;
@@ -200,6 +215,7 @@ export const CHARACTERS: CharacterDef[] = [
     traitDescription:
       "+0.2 luck, +35% magnet radius, +15% XP gain. Level 20: Jackpot - +0.35 luck, +10% crit chance.",
     spriteKey: 'fortune',
+    castAnchor: 0.68,
     applyTrait: (stats: PlayerStats) => {
       stats.luck += 0.2;
       stats.magnetRadius *= 1.35;
@@ -223,6 +239,7 @@ export const CHARACTERS: CharacterDef[] = [
     startWeaponId: 'garlic_aura',
     traitDescription: '+10% max health, +10% damage, +10% move speed, +10% cooldown reduction',
     spriteKey: 'steadyhand',
+    castAnchor: 0.55,
     applyTrait: (stats: PlayerStats) => {
       stats.maxHealth *= 1.1;
       stats.health = stats.maxHealth;

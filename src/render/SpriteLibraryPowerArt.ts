@@ -42,8 +42,10 @@ function paintOrb(g: string[][], cx: number, cy: number, r: number, core: string
 
 // ===========================================================================
 // WHIP SLASH - a real lash, not a rectangle that blinks on.
-// 4 frames: coiled -> extending -> full crack -> follow-through fade.
-// Authored pointing RIGHT; WhipStrike mirrors it per side via setFacing().
+// 5 frames: coil -> release -> extension -> SNAP -> recovery.
+// Authored pointing RIGHT; WhipStrike mirrors it per side via setFacing(),
+// and renders it into a NON-SQUARE quad via setSizeXY() so the cord stays
+// long and thin instead of ballooning into a square that floats overhead.
 // ===========================================================================
 const WHIP_PALETTE: Record<string, string> = {
   a: '#fff4d0', // hot inner edge / highlight along the top of the cord
@@ -127,17 +129,75 @@ function whipGrid(stage: number): string[][] {
   return g;
 }
 
+/**
+ * SERPENT'S COIL (evolved). Same cord, same 5-beat crack, same thickness -
+ * it must still read as the SAME weapon, just awakened. The differences are
+ * deliberately small and specific rather than "the green one":
+ *   - venom energy travelling ALONG the cord as bright nodes that slide
+ *     outward frame by frame, so the lash looks charged rather than tinted,
+ *   - a forked, slightly serpentine TIP instead of a plain taper,
+ *   - a short afterimage trailing the cord's previous position,
+ *   - venom motes spitting off the tip on the snap.
+ */
+function serpentGrid(stage: number): string[][] {
+  const g = makeGrid(WHIP_W, WHIP_H);
+
+  // Afterimage first, so the live cord paints over it: a faint copy of the
+  // PREVIOUS beat's shape, which reads as motion blur on a fast lash.
+  if (stage > 0 && stage < 4) {
+    const prev = [0, 12, 23, 35][stage];
+    const prevAmp = [0, 4.6, 4.2, 3.6][stage];
+    const prevPhase = [0, 2.2, 1.15, 0.45][stage];
+    for (let x = 0; x <= prev; x++) {
+      const t = x / Math.max(1, prev);
+      const bend = Math.sin(t * Math.PI * 1.55 + prevPhase) * prevAmp * (0.35 + t * 0.85);
+      fillRect(g, x, WHIP_MID + Math.round(bend) + 1, x, WHIP_MID + Math.round(bend) + 1, 'g');
+    }
+  }
+
+  drawGrip(g);
+
+  const len = [12, 23, 35, 43, 30][stage];
+  const amp = [4.6, 4.2, 3.6, 2.6, 3.2][stage];
+  const phase = [2.2, 1.15, 0.45, 0.15, 2.6][stage];
+  const thick = [6, 6, 5, 5, 3][stage];
+  drawLash(g, len, amp, phase, thick);
+
+  // Venom nodes sliding outward along the cord, one step further each beat.
+  for (let n = 0; n < 3; n++) {
+    const nodeT = (0.18 + n * 0.28 + stage * 0.12) % 1.0;
+    const x = Math.round(nodeT * len);
+    if (x < 2 || x > len) continue;
+    const bend = Math.sin(nodeT * Math.PI * 1.55 + phase) * amp * (0.35 + nodeT * 0.85);
+    const y = WHIP_MID + Math.round(bend);
+    fillRect(g, x, y - 1, x, y + 1, 'e');
+    fillRect(g, x, y, x, y, 't');
+  }
+
+  if (stage === 3) {
+    // Forked serpent tongue at the tip + venom motes spat off the crack.
+    const tipY = WHIP_MID + Math.round(Math.sin(Math.PI * 1.55 + 0.15) * 2.6 * 1.2);
+    fillRect(g, 43, tipY - 2, 43, tipY - 1, 't');
+    fillRect(g, 43, tipY + 1, 43, tipY + 2, 't');
+    fillRect(g, 42, tipY, 43, tipY, 'e');
+    fillRect(g, 40, tipY + 4, 41, tipY + 5, 'e');
+    fillRect(g, 38, tipY - 4, 39, tipY - 3, 'e');
+  }
+  return g;
+}
+
 function registerWhip(): void {
   spriteAtlas.registerClip('whip_slash', 26, false, [0, 1, 2, 3, 4].map((i) => ({
     key: `whip_slash_${i}`,
     draw: (ctx: CanvasRenderingContext2D, s: number) => drawPixelGrid(ctx, s, toRows(whipGrid(i)), WHIP_PALETTE, '#3a1c05'),
   })));
-  // Evolved Serpent's Coil: venom-green cord, same 5-beat crack so it still
-  // reads as a whip rather than becoming a different weapon.
-  const evoPalette = { a: '#e8ffd0', b: '#9ef06a', c: '#4f9c2e', d: '#1f5210', t: '#ffffff' };
+  const evoPalette = {
+    a: '#e8ffd0', b: '#7fd94a', c: '#3f8a24', d: '#1f5210',
+    t: '#ffffff', e: '#c8ff6a', g: 'rgba(126,217,74,0.35)',
+  };
   spriteAtlas.registerClip('whip_slash_evo', 26, false, [0, 1, 2, 3, 4].map((i) => ({
     key: `whip_slash_evo_${i}`,
-    draw: (ctx: CanvasRenderingContext2D, s: number) => drawPixelGrid(ctx, s, toRows(whipGrid(i)), evoPalette, '#0d2606'),
+    draw: (ctx: CanvasRenderingContext2D, s: number) => drawPixelGrid(ctx, s, toRows(serpentGrid(i)), evoPalette, '#0d2606'),
   })));
 }
 

@@ -64,6 +64,8 @@ export class ProjectileManager {
   readonly facingOverride = new Int8Array(this.capacity);
   /** Per-instance extra spin offset in radians, for weapons that want a specific blade/axe orientation. */
   readonly spinOffset = new Float32Array(this.capacity);
+  /** Per-instance spin speed (rad/s); -1 uses the shared default. Lets a thrown axe slow its rotation near the apex. */
+  readonly spinRate = new Float32Array(this.capacity).fill(-1);
   /** Per-instance render opacity (1 = opaque). Lets a weapon fade a visual - a toss shadow, an expiring zone - without a second batch. */
   readonly alphaOverride = new Float32Array(this.capacity).fill(1);
 
@@ -106,6 +108,7 @@ export class ProjectileManager {
     this.heightOffset[index] = 0;
     this.facingOverride[index] = 0;
     this.spinOffset[index] = 0;
+    this.spinRate[index] = -1;
     this.alphaOverride[index] = 1;
     return index;
   }
@@ -119,6 +122,11 @@ export class ProjectileManager {
   /** Force this instance's horizontal mirror (+1 right / -1 left) instead of deriving it from velocity. */
   setFacing(index: number, facing: 1 | -1): void {
     this.facingOverride[index] = facing;
+  }
+
+  /** Override this instance's spin speed in rad/s for this frame. */
+  setSpinRate(index: number, radPerSec: number): void {
+    this.spinRate[index] = radPerSec;
   }
 
   /** Per-instance render opacity for this frame (1 = opaque). Reset to 1 on spawn; call every frame while fading. */
@@ -209,7 +217,7 @@ export class ProjectileManager {
         uv = spriteAtlas.getUV(0);
       }
 
-      if (visual.spins) this.spin[i] += dt * 12;
+      if (visual.spins) this.spin[i] += dt * (this.spinRate[i] >= 0 ? this.spinRate[i] : 12);
       const facing =
         this.facingOverride[i] !== 0
           ? this.facingOverride[i]

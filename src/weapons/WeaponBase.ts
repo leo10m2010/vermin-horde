@@ -12,6 +12,8 @@ export interface WeaponContext {
   playerZ: number;
   playerVX: number;
   playerVZ: number;
+  /** World Y of the current character's weapon hand - see CharacterDef.castAnchor. */
+  castAnchorY: number;
   dt: number;
   elapsed: number;
   rng: () => number;

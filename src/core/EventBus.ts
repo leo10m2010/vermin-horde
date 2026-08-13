@@ -38,6 +38,8 @@ export class EventBus<Events extends Record<string, unknown>> {
 export type GameEvents = {
   playerHit: { damage: number; x: number; z: number };
   playerDeath: { x: number; z: number };
+  /** A weapon's projectile resolved against the world (e.g. a thrown axe landing), for impact VFX. */
+  weaponImpact: { x: number; z: number; weaponId: string };
   enemyHit: { x: number; z: number; damage: number; crit: boolean; enemyIndex: number; weaponId?: string };
   enemyKilled: { x: number; z: number; typeId: number; isElite: boolean; isBoss: boolean; xpValue: number };
   gemCollected: { x: number; z: number; value: number };

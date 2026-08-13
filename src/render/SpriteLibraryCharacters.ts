@@ -133,6 +133,42 @@ const TG = {
   hipY: 20, legY1: 26, bootY1: 29,
 };
 
+/**
+ * Brakka's HEAVY WHIP prop: a short reinforced haft with a thick coiled
+ * cord/chain looped off it.
+ *
+ * He previously carried a two-handed WARHAMMER while his starting weapon is
+ * Whip Strike - the single clearest character/weapon contradiction on the
+ * roster. This keeps his silhouette heavy and armoured (it is a brutal
+ * siege-whip, not a tamer's cord): the haft is chunky and metal-banded, and
+ * the coil is drawn thick with a visible loop so it still reads as mass in
+ * his hand rather than turning him into an agile duellist.
+ *
+ * Palette slots w/x/y are the cord, v the leather haft, '2' the metal bands -
+ * the same slots the hammer used, so no palette entry is orphaned.
+ */
+function paintHeavyWhip(g: string[][], gripX: number, gripY: number, coiled: boolean): void {
+  // Reinforced haft, banded in metal.
+  fillRectShaded(g, gripX, gripY, gripX + 2, gripY + 6, 'v', 'x', 'y');
+  fillRect(g, gripX, gripY + 1, gripX + 2, gripY + 1, '2');
+  fillRect(g, gripX, gripY + 5, gripX + 2, gripY + 5, '2');
+  fillRect(g, gripX - 1, gripY + 6, gripX + 3, gripY + 7, '2'); // pommel ring
+
+  if (coiled) {
+    // Thick cord looped and hanging - reads as stored weight at rest.
+    fillRectShaded(g, gripX - 1, gripY + 8, gripX + 3, gripY + 9, 'w', 'x', 'y');
+    fillRectShaded(g, gripX - 3, gripY + 9, gripX - 1, gripY + 13, 'w', 'x', 'y');
+    fillRectShaded(g, gripX + 3, gripY + 9, gripX + 5, gripY + 12, 'w', 'x', 'y');
+    fillRectShaded(g, gripX - 2, gripY + 13, gripX + 4, gripY + 14, 'w', 'x', 'y');
+    fillRect(g, gripX, gripY + 11, gripX + 2, gripY + 12, 'y'); // hollow of the loop
+  } else {
+    // Cord paid out, trailing behind the haft.
+    fillRectShaded(g, gripX + 3, gripY + 2, gripX + 7, gripY + 3, 'w', 'x', 'y');
+    fillRectShaded(g, gripX + 7, gripY + 3, gripX + 11, gripY + 5, 'w', 'x', 'y');
+    fillRect(g, gripX + 11, gripY + 5, gripX + 13, gripY + 5, 'x');
+  }
+}
+
 function thornguardGrid(legOffset: number, armUp: boolean): string[][] {
   const g = makeGrid(26, 30);
   const lo = Math.round(legOffset / 2);
@@ -158,18 +194,15 @@ function thornguardGrid(legOffset: number, armUp: boolean): string[][] {
   const rightArmBottom = armUp ? 16 : 20;
   fillRectShaded(g, 4, armTop, 8, leftArmBottom, 'm', 'l', 'q');
   fillRectShaded(g, 17, armTop, 21, rightArmBottom, 'm', 'l', 'q');
-  // warhammer in the right hand: grip patch, haft, detailed head
+  // HEAVY WHIP in the right hand (his real starting weapon), with a visible
+  // grip patch where it meets the gauntlet.
   fillRect(g, 17, rightArmBottom - 2, 21, rightArmBottom - 1, 'n');
   if (armUp) {
-    fillRect(g, 18, 4, 19, rightArmBottom - 2, 'v');
-    fillRectShaded(g, 15, 0, 22, 5, 'w', 'x', 'y');
-    fillRect(g, 14, 1, 15, 3, '2');
-    fillRect(g, 22, 1, 23, 3, '2');
+    // Haft lifted, coil swinging clear of the body.
+    paintHeavyWhip(g, 19, rightArmBottom - 8, true);
   } else {
-    fillRect(g, 22, rightArmBottom - 8, 23, rightArmBottom - 2, 'v');
-    fillRectShaded(g, 20, rightArmBottom - 12, 25, rightArmBottom - 7, 'w', 'x', 'y');
-    fillRect(g, 19, rightArmBottom - 11, 20, rightArmBottom - 9, '2');
-    fillRect(g, 25, rightArmBottom - 11, 25, rightArmBottom - 9, '2');
+    // At rest: coil hanging beside the hip.
+    paintHeavyWhip(g, 20, rightArmBottom - 6, true);
   }
   // belt + legs + boots
   fillRect(g, 9, 19, 16, 19, 'j');
@@ -215,25 +248,20 @@ function thornguardCastGrid(stage: number): string[][] {
   fillRectShaded(g, TG.tabardX0 + lean, TG.torsoY0 + 1, TG.tabardX1 + lean, TG.torsoY1 - 2, 'a', 'f', 'k');
   fillRectShaded(g, 3, 11, 7, 20, 'm', 'l', 'q');
   if (stage === 0) {
-    // windup: hammer cocked low-right
+    // windup: haft drawn back low, coil still loaded
     fillRectShaded(g, 18, 15, 22, 22, 'm', 'l', 'q');
     fillRect(g, 18, 20, 22, 21, 'n');
-    fillRect(g, 22, 18, 23, 21, 'v');
-    fillRectShaded(g, 20, 21, 25, 26, 'w', 'x', 'y');
+    paintHeavyWhip(g, 20, 17, true);
   } else if (stage === 1) {
-    // peak: hammer high overhead
+    // peak: arm up, cord starting to pay out overhead
     fillRectShaded(g, 17, 2, 21, 12, 'm', 'l', 'q');
     fillRect(g, 17, 8, 21, 9, 'n');
-    fillRect(g, 18, 2, 19, 8, 'v');
-    fillRectShaded(g, 14, -1, 23, 3, 'w', 'x', 'y');
-    fillRect(g, 13, 0, 14, 2, '2');
-    fillRect(g, 23, 0, 24, 2, '2');
+    paintHeavyWhip(g, 18, 3, false);
   } else {
-    // release: hammer slammed forward-down
+    // release: arm thrust forward, cord cracking out to the side
     fillRectShaded(g, 18, 14, 24, 19, 'm', 'l', 'q');
     fillRect(g, 18, 16, 22, 17, 'n');
-    fillRect(g, 21, 18, 24, 19, 'v');
-    fillRectShaded(g, 21, 19, 26, 24, 'w', 'x', 'y');
+    paintHeavyWhip(g, 21, 14, false);
   }
   fillRect(g, 9, 19, 16, 19, 'j');
   fillRectShaded(g, 9, TG.hipY, 11, 26, 'p', 'r', 'u');
@@ -789,8 +817,10 @@ const CHARACTER_ART: Record<string, CharacterArt> = {
       n: '#d8b48a',
       p: '#33383f', r: '#4a515a', u: '#191c20',
       o: '#131518',
-      w: '#c7cdd6', x: '#eef1f5', y: '#7d838c',
-      v: '#5c4a34',
+      // Heavy whip: braided dark cord (w/x/y) on a leather haft (v), banded
+      // with the same gold as his other metal fittings ('2').
+      w: '#6b5334', x: '#96754a', y: '#332616',
+      v: '#4a3a24',
       s: '#7a2018', t: '#a8382a', z: '#3c0f0a',
       '1': '#e6c86a', '2': '#e6c86a',
     },

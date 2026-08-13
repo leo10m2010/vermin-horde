@@ -97,6 +97,8 @@ interface ThreeGameTestHooks {
   ): { id: string; level: number; evolved: boolean; effect: Record<string, number | undefined> };
   /** QA helper: every live projectile belonging to a weapon (position, velocity, hit radius). */
   getProjectileCensus(weaponId: string): Array<{ x: number; z: number; vx: number; vz: number; radius: number }>;
+  /** QA helper: where the whip cord sits relative to the current character's sprite, in world units. */
+  getWhipAnchorDebug(): { character: string; feetY: number; spriteTopY: number; cordY: number; cordFractionOfHeight: number };
   /** QA helper: radii of the ground rings actually drawn this frame, to compare drawn area against damaging area. */
   getGroundRingRadii(): number[];
   /** QA helper: the authoritative progression numbers the simulation uses at a level. */
