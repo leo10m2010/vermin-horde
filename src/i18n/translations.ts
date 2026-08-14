@@ -262,4 +262,6 @@ registerTranslations([
   { es: 'Regen', en: 'Regen' },
   { es: 'Imán', en: 'Magnet' },
   { es: 'Suerte', en: 'Luck' },
+  // --- Game.ts (Second Wind revive) ---
+  { es: '¡Segundo Aliento!', en: 'Second Wind!' },
 ]);

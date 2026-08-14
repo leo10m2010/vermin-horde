@@ -367,6 +367,9 @@ export class Shop {
 
     const card = document.createElement('div');
     card.className = maxed ? 'shop-card shop-card--maxed' : 'shop-card';
+    // Lets a test click a specific upgrade's real Buy button without matching
+    // on translated display names.
+    card.dataset.upgradeId = def.id;
 
     const head = document.createElement('div');
     head.className = 'shop-card-head';

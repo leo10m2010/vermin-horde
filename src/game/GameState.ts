@@ -87,12 +87,23 @@ export class GameState {
   /** Stack count per owned passive id (e.g. {'passive_damage': 3}), used to gate weapon evolutions on a specific owned passive. */
   ownedPassives: Map<string, number> = new Map();
 
+  /**
+   * Restores a fresh run WITHOUT replacing `stats` / `run` / `ownedPassives`.
+   *
+   * This used to assign brand-new objects, which silently contradicted the
+   * invariant documented above. Nothing broke only because every consumer
+   * happens to be handed a fresh pointer each frame (Player.update, weapon
+   * update, UpgradeSystem.apply, WeaponSystem.trySetInventory) - i.e. the
+   * invariant was being upheld by luck, not by design. Mutating in place makes
+   * the documented contract true, so a future system that caches
+   * `state.stats` in its constructor cannot quietly read a dead object.
+   */
   reset(seed = Date.now() & 0xffffffff): void {
-    this.stats = createDefaultStats();
-    this.run = createDefaultRunStats();
+    Object.assign(this.stats, createDefaultStats());
+    Object.assign(this.run, createDefaultRunStats());
+    this.ownedPassives.clear();
     this.seed = seed;
     this.phase = 'playing';
-    this.ownedPassives = new Map();
   }
 
   gainXp(amount: number): number {

@@ -55,6 +55,14 @@ import { MenuScene } from '../render/MenuScene';
 
 const VICTORY_SECONDS = DIFFICULTY.rampSeconds; // survive the full escalation arc to win
 const PLAYER_START_INVULN = 0.8;
+/** Second Wind puts the player back at this fraction of max HP. */
+const REVIVE_HEALTH_FRACTION = 0.75;
+/**
+ * Invulnerability granted by a revive. Much longer than a normal hit's i-frames
+ * (0.5s): the player is revived inside the exact crowd that just killed them,
+ * so a short window would burn the charge without giving them a chance to run.
+ */
+const REVIVE_INVULN_SECONDS = 2.5;
 /** Fixed camera target for the art-inspection showcase - the lineup is built centred on the world origin. */
 const SHOWCASE_CAMERA_TARGET = new THREE.Vector3(0, 0, 0);
 /** Scratch vector reused by the screen-projection QA hook - never allocate per sample. */
@@ -110,6 +118,9 @@ export class Game {
   private goldAtRunStart = 0;
   private readonly powerSlotEls: Array<{ root: HTMLElement; icon: HTMLImageElement; level: HTMLElement }> = [];
   private lastHudHealth = -1;
+  /** QA-only crit ledger for the current run (see the enemyHit listener). */
+  private hitTally = 0;
+  private critTally = 0;
   private lastPowerSlotSignature = '';
 
   private readonly loop = new Loop(
@@ -386,6 +397,8 @@ export class Game {
     // entered again, every run, every reload.
     this.godMode = false;
     this.secretCode.reset();
+    this.hitTally = 0;
+    this.critTally = 0;
     // Every upgrade roll for this run - level-up cards and treasure caches
     // alike - now leans toward this character's build. Set once here rather
     // than passed down through each call site.
@@ -708,25 +721,35 @@ export class Game {
     gameEvents.emit('playerHit', { damage, x: this.player.position.x, z: this.player.position.z });
     gameEvents.emit('screenShake', { intensity: 0.18, duration: 0.22 });
     if (this.state.stats.health <= 0) {
-      // Check for Second Wind revive before triggering game over.
+      // Second Wind: a lethal hit is refused while a revive charge is held.
+      // Checked HERE, before triggerGameOver, because that is the only place
+      // the run can end from damage - the charge was being granted correctly
+      // by the shop and applied correctly to stats, but nothing ever read it.
       if (this.state.stats.reviveCharges > 0) {
-        this.state.stats.reviveCharges -= 1;
-        // Restore HP to a reasonable amount (75% of max). Long invulnerability window
-        // so the player isn't immediately re-murdered by the horde that just killed them.
-        this.state.stats.health = Math.round(this.state.stats.maxHealth * 0.75);
-        // Long i-frame so the player has time to react and move away.
-        this.player.invulnTimer = 2.5;
-        // Flash + screen shake feedback so the revive is unmissable.
-        this.player.hitFlash();
-        gameEvents.emit('screenShake', { intensity: 0.3, duration: 0.4 });
-        gameEvents.emit('playerRevived', { x: this.player.position.x, z: this.player.position.z });
-        // One-time toast: you just survived certain death.
-        this.showToast('Second Wind activated!');
+        this.consumeReviveCharge();
         return;
       }
       this.state.stats.health = 0;
       this.triggerGameOver();
     }
+  }
+
+  /**
+   * Spends one revive charge and puts the player back on their feet.
+   *
+   * A RESURRECTION, not a restart: the run keeps its clock, kills, level,
+   * weapons, passives and the horde that just killed the player. The only
+   * things touched are HP, the charge count, and a generous invulnerability
+   * window - without it the same contact damage that killed the player lands
+   * again on the next frame and the charge is wasted for nothing.
+   */
+  private consumeReviveCharge(): void {
+    this.state.stats.reviveCharges -= 1;
+    this.state.stats.health = Math.round(this.state.stats.maxHealth * REVIVE_HEALTH_FRACTION);
+    this.player.invulnTimer = REVIVE_INVULN_SECONDS;
+    gameEvents.emit('screenShake', { intensity: 0.34, duration: 0.45 });
+    gameEvents.emit('playerRevived', { x: this.player.position.x, z: this.player.position.z });
+    this.showToast(t('¡Segundo Aliento!'));
   }
 
   private updateHud(): void {
@@ -983,6 +1006,11 @@ export class Game {
       // weapon id - at most 6 entries, written once per hit, so it costs
       // nothing next to the damage calculation that produced the number.
       if (e.weaponId) this.damageByWeapon.set(e.weaponId, (this.damageByWeapon.get(e.weaponId) ?? 0) + e.damage);
+      // Crit tally, for QA only. `critChance` can be correct in stats and
+      // still never reach the roll that decides a hit - two counters make
+      // that difference observable instead of inferred.
+      this.hitTally += 1;
+      if (e.crit) this.critTally += 1;
     });
     gameEvents.on('gemCollected', (e) => {
       this.state.run.gemsCollected += 1;
@@ -1061,6 +1089,10 @@ export class Game {
           this.presentNextUpgrade();
         } else if (name === 'gameover') this.triggerGameOver();
         else if (name === 'victory') this.triggerVictory();
+        // Back to the main menu, through the same path the pause screen's
+        // "Main Menu" button uses - so a test can walk into the real shop
+        // between runs instead of faking a purchase.
+        else if (name === 'menu') this.quitToMenu();
         else console.warn(`Unknown test state: ${name}`);
       },
       setPausedForScreenshot: (paused: boolean) => {
@@ -1171,6 +1203,45 @@ export class Game {
         }
         return n;
       },
+
+      // --- Meta-progression QA -------------------------------------------
+      // These exist so a test can drive the REAL shop economy (earn, buy,
+      // persist, re-apply) instead of writing to state.stats and pretending a
+      // purchase happened. Nothing here fabricates an upgrade effect: buying
+      // still goes through MetaProgression.buyUpgrade and still has to be paid
+      // for, it just skips the grinding.
+      /** QA helper: credit gold, exactly as a kill or a coin pickup would. */
+      grantGold: (amount: number) => {
+        this.metaProgression.addGold(amount);
+      },
+      /** QA helper: owned level of a permanent upgrade. */
+      getUpgradeLevel: (id: string) => this.metaProgression.getUpgradeLevel(id),
+      /** QA helper: wipe the persisted profile so a test starts from a clean shop. */
+      resetMeta: () => {
+        window.localStorage.removeItem('vermin-horde-meta-v1');
+        window.location.reload();
+      },
+      /**
+       * QA helper: roll the real drop table N times using the LIVE run's luck
+       * and level. Proves the consumer actually receives the luck value rather
+       * than a hardcoded one - a luck upgrade that never reaches the drop roll
+       * would show an unchanged histogram here.
+       */
+      simulateDropRolls: (rolls: number) => {
+        const histogram: Record<string, number> = {};
+        for (let i = 0; i < rolls; i++) {
+          const drop = rollDrop(() => this.rng(), this.state.stats.luck, this.state.run.level);
+          const key = drop ? drop.id : 'nothing';
+          histogram[key] = (histogram[key] ?? 0) + 1;
+        }
+        return histogram;
+      },
+      /** QA helper: object identity of the live state containers, to assert reset() preserves them. */
+      getStateIdentity: () => ({
+        stats: this.state.stats,
+        run: this.state.run,
+        ownedPassives: this.state.ownedPassives,
+      }),
       /**
        * QA helper: roll the real upgrade pool N times under a given
        * character's affinities, against the CURRENT run state, and return the
@@ -1527,6 +1598,8 @@ export class Game {
       projectileSpeedMultiplier: this.state.stats.projectileSpeedMultiplier,
       critChance: this.state.stats.critChance,
       reviveCharges: this.state.stats.reviveCharges,
+      hitTally: this.hitTally,
+      critTally: this.critTally,
       gold: this.metaProgression.gold,
       player: {
         position: { x: this.player.position.x, y: this.player.position.y, z: this.player.position.z },

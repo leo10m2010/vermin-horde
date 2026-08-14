@@ -232,6 +232,18 @@ export class ParticleSystem {
           clip: 'vfx_spark',
         });
       }),
+      // Second Wind. Deliberately unlike the red hit spray: a wide, slow gold
+      // bloom, so surviving a killing blow does not read as "took a hit".
+      gameEvents.on('playerRevived', (e) => {
+        this.spawnBurst(e.x, e.z, {
+          count: 30,
+          speed: 3.6,
+          life: 1.1,
+          sizeBase: 0.5,
+          colorHex: '#e8c468',
+          clip: 'vfx_levelup_burst',
+        });
+      }),
     );
   }
 }

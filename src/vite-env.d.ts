@@ -18,6 +18,9 @@ interface ThreeGameDiagnostics {
   projectileSpeedMultiplier: number;
   critChance: number;
   reviveCharges: number;
+  /** QA: hits landed this run, and how many of them crit. */
+  hitTally: number;
+  critTally: number;
   gold: number;
   player: {
     position: { x: number; y: number; z: number };
@@ -106,6 +109,16 @@ interface ThreeGameTestHooks {
   getFrozenCount(): number;
   /** QA helper: loose XP gems currently magnetised toward the player. */
   getMagnetizedGemCount(): number;
+  /** QA helper: credit gold exactly as a kill or coin pickup would. */
+  grantGold(amount: number): void;
+  /** QA helper: owned level of a permanent shop upgrade. */
+  getUpgradeLevel(id: string): number;
+  /** QA helper: wipe the persisted meta profile and reload. */
+  resetMeta(): void;
+  /** QA helper: roll the real drop table N times using the LIVE run's luck and level. */
+  simulateDropRolls(rolls: number): Record<string, number>;
+  /** QA helper: object identity of the live state containers, to assert reset() preserves them. */
+  getStateIdentity(): { stats: object; run: object; ownedPassives: object };
 
   /**
    * Art-inspection scene: parks one frozen instance of every enemy AND boss

@@ -144,6 +144,9 @@ export class AudioManager {
 
     on('playerHit', () => this.playPlayerHit());
     on('playerDeath', () => this.playPlayerDeath());
+    // Second Wind cheats a death, so it borrows the level-up fanfare rather
+    // than any of the damage cues.
+    on('playerRevived', () => this.playLevelUp());
     on('enemyHit', (p) => this.playEnemyHit(p.crit));
     on('enemyKilled', (p) => this.playEnemyKilled(p.isElite, p.isBoss));
     on('gemCollected', () => this.playGemCollected());
