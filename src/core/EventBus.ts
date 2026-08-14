@@ -68,6 +68,8 @@ export type GameEvents = {
   treasureSpawned: { x: number; z: number };
   /** Player collected a Gilded Cache; luck rolled `tier` bonus picks (1/3/5), already applied. */
   treasureOpened: { x: number; z: number; tier: number; rewardNames: string[]; bonusGold: number };
+  /** Second Wind revived the player - drives the visual/audio celebration. */
+  playerRevived: { x: number; z: number };
 };
 
 export const gameEvents = new EventBus<GameEvents>();

@@ -708,6 +708,22 @@ export class Game {
     gameEvents.emit('playerHit', { damage, x: this.player.position.x, z: this.player.position.z });
     gameEvents.emit('screenShake', { intensity: 0.18, duration: 0.22 });
     if (this.state.stats.health <= 0) {
+      // Check for Second Wind revive before triggering game over.
+      if (this.state.stats.reviveCharges > 0) {
+        this.state.stats.reviveCharges -= 1;
+        // Restore HP to a reasonable amount (75% of max). Long invulnerability window
+        // so the player isn't immediately re-murdered by the horde that just killed them.
+        this.state.stats.health = Math.round(this.state.stats.maxHealth * 0.75);
+        // Long i-frame so the player has time to react and move away.
+        this.player.invulnTimer = 2.5;
+        // Flash + screen shake feedback so the revive is unmissable.
+        this.player.hitFlash();
+        gameEvents.emit('screenShake', { intensity: 0.3, duration: 0.4 });
+        gameEvents.emit('playerRevived', { x: this.player.position.x, z: this.player.position.z });
+        // One-time toast: you just survived certain death.
+        this.showToast('Second Wind activated!');
+        return;
+      }
       this.state.stats.health = 0;
       this.triggerGameOver();
     }
@@ -1504,6 +1520,13 @@ export class Game {
       bossKills: this.state.run.bossKills,
       health: this.state.stats.health,
       maxHealth: this.state.stats.maxHealth,
+      armor: this.state.stats.armor,
+      moveSpeed: this.state.stats.moveSpeed,
+      regenPerSecond: this.state.stats.regenPerSecond,
+      damageMultiplier: this.state.stats.damageMultiplier,
+      projectileSpeedMultiplier: this.state.stats.projectileSpeedMultiplier,
+      critChance: this.state.stats.critChance,
+      reviveCharges: this.state.stats.reviveCharges,
       gold: this.metaProgression.gold,
       player: {
         position: { x: this.player.position.x, y: this.player.position.y, z: this.player.position.z },

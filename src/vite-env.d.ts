@@ -11,6 +11,13 @@ interface ThreeGameDiagnostics {
   bossKills: number;
   health: number;
   maxHealth: number;
+  armor: number;
+  moveSpeed: number;
+  regenPerSecond: number;
+  damageMultiplier: number;
+  projectileSpeedMultiplier: number;
+  critChance: number;
+  reviveCharges: number;
   gold: number;
   player: {
     position: { x: number; y: number; z: number };
